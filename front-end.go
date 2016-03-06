@@ -4,7 +4,16 @@ import (
 	"fmt"
 	"os"
 	"net"
+	"encoding/json"
 )
+
+type Replica struct {
+	NodeId  string
+	RPCAddr string
+}
+
+// map to where the key is the replica id and the value is the replica's IP
+var replicaMap map[string]string
 
 // Main server loop.
 func main() {
@@ -15,12 +24,15 @@ func main() {
 		fmt.Printf(usage)
 		os.Exit(1)
 	}
-	
+
+	replicaMap = make(map[string]string)
+
 	clientAddrString := os.Args[1]
 	
 	replicaAddrString := os.Args[2]
 	replicaAddr, err := net.ResolveUDPAddr("udp", replicaAddrString)
 	checkError(err)
+	
 	
 	// start UDP server to listen for replica node activity
 	replicaConn, err := net.ListenUDP("udp", replicaAddr)
@@ -48,10 +60,24 @@ func main() {
 	
 }
 
+func ReplicaActivityListener() {
+	
+}
+
+// Function to listen for newly connected replica nodes
 func ReplicaListener(conn *net.UDPConn) {
 	
+	buf := make([]byte, 1024)
 	for {
-		
+		readLength, _, err := conn.ReadFromUDP(buf)
+		checkError(err)
+		// receive Replica struct from replica node
+		var replica Replica
+		err = json.Unmarshal(buf[:readLength], &replica)
+		if err == nil {
+			fmt.Println("Replica joined: " + replica.NodeId + " @ " + replica.RPCAddr)
+			replicaMap[replica.NodeId] = replica.RPCAddr
+		}
 	}
 }
 
