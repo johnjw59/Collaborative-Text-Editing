@@ -47,20 +47,28 @@ func main() {
 	go ReplicaActivityListener()
 	
 	// start TCP server to listen for new clients
-	clientConn, err := net.Listen("tcp", clientAddrString)
+	clientListener, err := net.Listen("tcp", clientAddrString)
 	if err != nil {
 		fmt.Println("Error on TCP listen: ", err)
 		os.Exit(-1)
 	}
 	
 	for {
-		
-		clientAddr, err := clientConn.Accept()
+		clientConn, err := clientListener.Accept()
 		checkError(err)
-		fmt.Println(clientAddr)
-		
+		go RouteClient(clientConn)		
 	}
 	
+}
+
+// Send a replica's RPCAddress to client to start communication with it
+func RouteClient(conn net.Conn) {
+
+	for _, RPCAddress := range replicaMap {
+		conn.Write([]byte(RPCAddress))
+		conn.Close()	
+		break
+	}
 }
 
 // Periodically check each node for availability (every second)
@@ -70,6 +78,7 @@ func ReplicaActivityListener() {
 		for nodeId, RPCaddress := range replicaMap {
 			_, err := rpc.Dial("tcp", RPCaddress)
 			if err != nil {
+				// remove the replica in the map
 				delete(replicaMap, nodeId)
 			}
 		}
