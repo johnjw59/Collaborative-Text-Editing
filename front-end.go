@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"net"
+	"net/rpc"
 	"encoding/json"
+	"time"
 )
 
 type Replica struct {
@@ -42,6 +44,7 @@ func main() {
 	}
 	
 	go ReplicaListener(replicaConn)
+	go ReplicaActivityListener()
 	
 	// start TCP server to listen for new clients
 	clientConn, err := net.Listen("tcp", clientAddrString)
@@ -60,8 +63,19 @@ func main() {
 	
 }
 
+// Periodically check each node for availability (every second)
 func ReplicaActivityListener() {
-	
+
+	for {
+		for nodeId, RPCaddress := range replicaMap {
+			_, err := rpc.Dial("tcp", RPCaddress)
+			if err != nil {
+				delete(replicaMap, nodeId)
+			}
+		}
+		
+		time.Sleep(1000 * time.Millisecond)
+	}
 }
 
 // Function to listen for newly connected replica nodes
