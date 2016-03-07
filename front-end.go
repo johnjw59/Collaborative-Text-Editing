@@ -7,6 +7,10 @@ import (
 	"net/rpc"
 	"encoding/json"
 	"time"
+	"flag"
+	"net/http"
+	"text/template"
+	"log"
 )
 
 type Replica struct {
@@ -17,6 +21,9 @@ type Replica struct {
 // map to where the key is the replica id and the value is the replica's IP
 var replicaMap map[string]string
 
+var httpAddress = flag.String("addr", ":8080", "http service address")
+var homeTemplate = template.Must(template.ParseFiles("home.html"))
+
 // Main server loop.
 func main() {
 	// Parse args.
@@ -26,7 +33,7 @@ func main() {
 		fmt.Printf(usage)
 		os.Exit(1)
 	}
-
+	
 	replicaMap = make(map[string]string)
 
 	clientAddrString := os.Args[1]
@@ -34,7 +41,6 @@ func main() {
 	replicaAddrString := os.Args[2]
 	replicaAddr, err := net.ResolveUDPAddr("udp", replicaAddrString)
 	checkError(err)
-	
 	
 	// start UDP server to listen for replica node activity
 	replicaConn, err := net.ListenUDP("udp", replicaAddr)
@@ -44,7 +50,7 @@ func main() {
 	}
 	
 	go ReplicaListener(replicaConn)
-	go ReplicaActivityListener()
+	// go ReplicaActivityListener()
 	
 	// start TCP server to listen for new clients
 	clientListener, err := net.Listen("tcp", clientAddrString)
@@ -53,12 +59,35 @@ func main() {
 		os.Exit(-1)
 	}
 	
+	flag.Parse()
+	// start HTTP server
+	go func() {
+		http.HandleFunc("/", ServeHome)
+		err = http.ListenAndServe(*httpAddress, nil)
+		if err != nil {
+			log.Fatal("Error on HTTP serve: ", err)
+		}
+	}()
+	
 	for {
 		clientConn, err := clientListener.Accept()
 		checkError(err)
 		go RouteClient(clientConn)		
 	}
-	
+}
+
+// serve the home page at localhost:8080
+func ServeHome(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.Error(w, "Not found", 404)
+		return
+	}
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	homeTemplate.Execute(w, r.Host)
 }
 
 // Send a replica's RPCAddress to client to start communication with it
@@ -79,6 +108,7 @@ func ReplicaActivityListener() {
 			_, err := rpc.Dial("tcp", RPCaddress)
 			if err != nil {
 				// remove the replica in the map
+				fmt.Println("Removed replica: " + nodeId)
 				delete(replicaMap, nodeId)
 			}
 		}
@@ -100,6 +130,8 @@ func ReplicaListener(conn *net.UDPConn) {
 		if err == nil {
 			fmt.Println("Replica joined: " + replica.NodeId + " @ " + replica.RPCAddr)
 			replicaMap[replica.NodeId] = replica.RPCAddr
+		} else {
+			checkError(err)
 		}
 	}
 }

@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"net"
-	"net/rpc"
-	"encoding/json"
+	"flag"
 	"log"
+	"net/http"
+	"encoding/json"
+	"github.com/gorilla/rpc"
+	gorillaJson "github.com/gorilla/rpc/json"
 )
 
 
@@ -30,14 +33,13 @@ type Replica struct {
 	RPCAddr string
 }
 
-
-type ReplicaService int
-
 // string to containt contents of document -> will be changed to a different data structure later on
 var documentContents string
 
+type ReplicaService struct {}
+
 // Write to Doc
-func (rs *ReplicaService) WriteToDoc(args *WriteArgs, reply *ValReply) error {
+func (rs *ReplicaService) WriteToDoc(r *http.Request, args *WriteArgs, reply *ValReply) error {
 	// Acquire mutex for exclusive access to kvmap.
 	//documentContents.Lock()
 	// Defer mutex unlock to (any) function exit.
@@ -51,7 +53,7 @@ func (rs *ReplicaService) WriteToDoc(args *WriteArgs, reply *ValReply) error {
 
 
 // Read from Doc
-func (rs *ReplicaService) ReadFromDoc(args *ReadArgs, reply *ValReply) error {
+func (rs *ReplicaService) ReadFromDoc(r *http.Request, args *ReadArgs, reply *ValReply) error {
 	// Acquire mutex for exclusive access to kvmap.
 	//documentContents.Lock()
 	// Defer mutex unlock to (any) function exit.
@@ -102,16 +104,12 @@ func main() {
 	documentContents = ""
 
 	// handle RPC calls from clients
-	replicaService := new(ReplicaService)
-	rpc.Register(replicaService)
-	l, e := net.Listen("tcp", replicaAddrString)
-	if e != nil {
-		log.Fatal("listen error:", e)
-	}
-	for {
-		conn, _ := l.Accept()
-		go rpc.ServeConn(conn)
-	}
+	address := flag.String("address", replicaAddrString, "")
+	server := rpc.NewServer()
+	server.RegisterCodec(gorillaJson.NewCodec(), "application/json")
+	server.RegisterService(new(ReplicaService), "")
+	http.Handle("/rpc/", server)
+	log.Fatal(http.ListenAndServe(*address, nil))
 }
 
 
