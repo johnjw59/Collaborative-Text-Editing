@@ -4,7 +4,7 @@ $(document).ready(function() {
 	websocket.onopen = function(event) {
 		console.log("opened");
 		// Ping the websocket
-		websocket.send("test")
+		websocket.send("ping")
 	}
 	websocket.onclose = function(event) {
 		console.log("closed");

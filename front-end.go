@@ -9,16 +9,29 @@ import (
 	"net/http"
 	"text/template"
 	"log"
+	"bytes"
 	"github.com/gorilla/websocket"
+	gorillaJson "github.com/gorilla/rpc/json"
 )
 
+// Reply from service for all API calls
+type ValReply struct {
+	Val string // value; depends on the call
+}
+
+// Info about other active replicas
+type ActiveReplicas struct {
+	Replicas map[string]string
+}
+
+// Info about the replica
 type Replica struct {
 	NodeId  string
 	RPCAddr string
 }
 
-// map to where the key is the replica id and the value is the replica's IP
-var replicaMap map[string]string
+// key is the replica id and the value is the replica's RCP IP
+var replicaRPCMap map[string]string
 
 var homeTemplate = template.Must(template.ParseFiles("home.html"))
 var upgrader = websocket.Upgrader{} // use default options
@@ -34,7 +47,7 @@ func main() {
 		os.Exit(1)
 	}
 	
-	replicaMap = make(map[string]string)
+	replicaRPCMap = make(map[string]string)
 
 	replicaAddrString := os.Args[1]
 	replicaAddr, err := net.ResolveUDPAddr("udp", replicaAddrString)
@@ -75,12 +88,19 @@ func RouteClient(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		
-		// naively get the first replica's address 
-		// TODO: Add logic to test availability of replica and remove the replica from map
+		// Randomly pick a replica to route to (note that this is random since the Go runtime randomizes map iteration order) 
 		var addressToSend string
-		for _, RPCAddress := range replicaMap {
-			addressToSend = RPCAddress
-			break
+		for nodeId, RPCAddress := range replicaRPCMap {
+			
+			// Test availability by dialing to the TCP/RPC address
+			_, err := net.Dial("tcp", RPCAddress)
+			if err != nil {
+				delete(replicaRPCMap, nodeId)
+				UpdateReplicas()
+			} else {
+				addressToSend = RPCAddress
+				break	
+			}
 		}
 		
 		err = c.WriteMessage(mt, []byte(addressToSend))
@@ -117,10 +137,44 @@ func ReplicaListener(conn *net.UDPConn) {
 		err = json.Unmarshal(buf[:readLength], &replica)
 		if err == nil {
 			fmt.Println("Replica joined: " + replica.NodeId + " @ " + replica.RPCAddr)
-			replicaMap[replica.NodeId] = replica.RPCAddr
+			replicaRPCMap[replica.NodeId] = replica.RPCAddr
+			UpdateReplicas()
 		} else {
 			checkError(err)
 		}
+	}
+}
+
+// Sends the map of active replicas to all replicas.
+// Encodes an HTTP request as an RPC request as gorilla/rpc doesn't give us proper client implementation
+func UpdateReplicas() {
+	
+	for _, RPCAddress := range replicaRPCMap {
+		
+		url := "http://" + RPCAddress + "/rpc/"
+		args := &ActiveReplicas{replicaRPCMap}
+		
+		message, err := gorillaJson.EncodeClientRequest("ReplicaService.SetActiveNodes", args)
+		if err != nil {
+			log.Fatalf("%s", err)
+		}
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(message))
+		if err != nil {
+			log.Fatalf("%s", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		client := new(http.Client)
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Fatalf("Error in sending request to %s. %s", url, err)
+		}
+		defer resp.Body.Close()
+
+		var result ValReply
+		err = gorillaJson.DecodeClientResponse(resp.Body, &result)
+		if err != nil {
+			log.Fatalf("Couldn't decode response. %s", err)
+		}	
 	}
 }
 

@@ -27,6 +27,11 @@ type ValReply struct {
 	Val string // value; depends on the call
 }
 
+// Info about other active replicas
+type ActiveReplicas struct {
+	Replicas map[string]string
+}
+
 // Info about the replica
 type Replica struct {
 	NodeId  string
@@ -64,6 +69,16 @@ func (rs *ReplicaService) ReadFromDoc(r *http.Request, args *ReadArgs, reply *Va
 	return nil
 }
 
+// Set local map of active nodes 
+func (rs *ReplicaService) SetActiveNodes(r *http.Request, args *ActiveReplicas, reply *ValReply) error {
+	
+	activeReplicasMap = args.Replicas	
+	reply.Val = "success"
+	fmt.Println("Updated map of replicas")
+	return nil	
+}
+
+var activeReplicasMap map[string]string
 
 // Main server loop.
 func main() {
@@ -74,6 +89,8 @@ func main() {
 		fmt.Printf(usage)
 		os.Exit(1)
 	}
+	
+	activeReplicasMap = make(map[string]string)
 	
 	replicaAddrString := os.Args[1]
 	frontEndAddrString := os.Args[2]
@@ -107,11 +124,11 @@ func main() {
 	address := flag.String("address", replicaAddrString, "")
 	server := rpc.NewServer()
 	server.RegisterCodec(gorillaJson.NewCodec(), "application/json")
+	server.RegisterCodec(gorillaJson.NewCodec(), "application/json;charset=UTF-8")
 	server.RegisterService(new(ReplicaService), "")
 	http.Handle("/rpc/", server)
 	log.Fatal(http.ListenAndServe(*address, nil))
 }
-
 
 // If error is non-nil, print it out and halt.
 func checkError(err error) {
