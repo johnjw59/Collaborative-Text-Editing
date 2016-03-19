@@ -10,8 +10,17 @@ import (
 	"encoding/json"
 	"github.com/gorilla/rpc"
 	gorillaJson "github.com/gorilla/rpc/json"
+	"github.com/arcaneiceman/GoVector/govec"
 )
 
+type W-Character struct {
+	siteID string // site id and clock make up the W-Character's unique ID
+	clock int
+	isVisible boolean
+	charVal string // should have length 1
+	prevChar W-Character
+	nextChar W-Character
+}
 
 // args in WriteToDoc(args)
 type WriteArgs struct {
@@ -40,6 +49,58 @@ type Replica struct {
 
 // string to containt contents of document -> will be changed to a different data structure later on
 var documentContents string
+//var documentContents []W-Character
+
+// each replica has a logical clock associated with it
+var replicaClock int
+
+// WOOT Methods - three stage process of making changes
+func GenerateIns(pos int, char string) {
+	// need to increment clock
+	replicaClock += 1
+
+
+}
+
+func GenerateDel(pos int) {
+
+}
+
+// check preconditions of operation
+func isExecutable() {
+
+}
+
+func receiveOperation() {
+
+}
+
+func IntegrateDel() {
+
+}
+
+func IntegrateIns() {
+
+}
+ 
+// return the ith visible character in a string of W-Characters - what happens when i is larger than string length?
+func getIthVisible(str []W-Character, i int) W-Character {
+	index := 0
+	count := 0
+
+	for j, wchar := range str {
+		if count == i {
+			break
+		}
+		if wchar.isVisible {
+			count += 1
+		}
+		index = j
+	}
+	return str[index]
+}
+
+
 
 type ReplicaService struct {}
 
@@ -89,6 +150,9 @@ func main() {
 		fmt.Printf(usage)
 		os.Exit(1)
 	}
+
+	// govector library for vector clock logs
+	Logger := govec.Initialize("client", "clientlogfile")
 	
 	activeReplicasMap = make(map[string]string)
 	
@@ -136,4 +200,10 @@ func checkError(err error) {
 		fmt.Fprintf(os.Stderr, "Error ", err.Error())
 		os.Exit(1)
 	}
+}
+
+
+// Tests
+func ithVisibleTest() {
+
 }
