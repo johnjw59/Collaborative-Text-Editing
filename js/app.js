@@ -1,7 +1,7 @@
 angular.module('app', ['angular-json-rpc', 'eb.caret'])
 
 .controller('main', function($scope, $http, $q) {
-  /*var ws = new WebSocket('ws://localhost:8080/route');
+  var ws = new WebSocket('ws://localhost:8080/route');
   ws.onopen = function() {
     ws.send('ping');
   };
@@ -15,26 +15,15 @@ angular.module('app', ['angular-json-rpc', 'eb.caret'])
   };
 
   $scope.$on('replica_ip', function(e, address) {
-    console.log('got a new replica IP');*/
-    $http.jsonrpc('http://localhost:5050/rpc', 'Service.DoSomething', 
-      [{
-        "Str":"pie",
-        "Val":3.14
-      }]
-    )
+    console.log('got a new replica IP');
+    $http.jsonrpc('http://' + address +'/rpc', 'ReplicaService.ReadFromDoc', [{}])
     .success(function(data, status, headers, config) {
-      console.log('it was a success?');
+      console.log('RPC call success!');
       console.log(data);
-      console.log(status);
-      console.log(headers);
-      console.log(config);
     }).error(function(data, status, headers, config) {
-      console.log('failure!');
-      console.log(data);
-      console.log(status);
-      console.log(headers);
+      console.error('RPC call failed - ' + status);
       console.log(config);
     });
-  //});
+  });
 
 });

@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"encoding/json"
+	"github.com/gorilla/mux"
 	"github.com/gorilla/rpc"
 	gorillaJson "github.com/gorilla/rpc/json"
 )
@@ -122,10 +123,12 @@ func main() {
 
 	// handle RPC calls from clients
 	address := flag.String("address", replicaAddrString, "")
+	r := mux.NewRouter()
 	server := rpc.NewServer()
 	server.RegisterCodec(gorillaJson.NewCodec(), "application/json")
 	server.RegisterService(new(ReplicaService), "")
-	http.Handle("/rpc", server)
+  r.Handle("/rpc", server)
+  http.Handle("/", &MyServer{r})
 	log.Fatal(http.ListenAndServe(*address, nil))
 }
 
@@ -135,4 +138,21 @@ func checkError(err error) {
 		fmt.Fprintf(os.Stderr, "Error ", err.Error())
 		os.Exit(1)
 	}
+}
+
+// Override gorilla's ServeHTTP function to allow any domain from accessing RPC
+type MyServer struct {
+    r *mux.Router
+}
+func (s *MyServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+    rw.Header().Set("Access-Control-Allow-Origin", "*")
+    rw.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+    rw.Header().Set("Access-Control-Allow-Headers",
+        "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+    // Stop here if its Preflighted OPTIONS request
+    if req.Method == "OPTIONS" {
+        return
+    }
+    // Let Gorilla do it's thing
+    s.r.ServeHTTP(rw, req)
 }

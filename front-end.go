@@ -151,7 +151,7 @@ func UpdateReplicas() {
 	
 	for _, RPCAddress := range replicaRPCMap {
 		
-		url := "http://" + RPCAddress + "/rpc/"
+		url := "http://" + RPCAddress + "/rpc"
 		args := &ActiveReplicas{replicaRPCMap}
 		
 		message, err := gorillaJson.EncodeClientRequest("ReplicaService.SetActiveNodes", args)
