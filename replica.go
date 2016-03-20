@@ -124,9 +124,8 @@ func main() {
 	address := flag.String("address", replicaAddrString, "")
 	server := rpc.NewServer()
 	server.RegisterCodec(gorillaJson.NewCodec(), "application/json")
-	server.RegisterCodec(gorillaJson.NewCodec(), "application/json;charset=UTF-8")
 	server.RegisterService(new(ReplicaService), "")
-	http.Handle("/rpc/", server)
+	http.Handle("/rpc", server)
 	log.Fatal(http.ListenAndServe(*address, nil))
 }
 
