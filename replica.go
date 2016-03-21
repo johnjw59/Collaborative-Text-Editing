@@ -14,12 +14,12 @@ import (
 )
 
 type W-Character struct {
-	siteID string // site id and clock make up the W-Character's unique ID
-	clock int
-	isVisible boolean
-	charVal string // should have length 1
-	prevChar *W-Character
-	nextChar *W-Character
+	SiteID string // site id and clock make up the W-Character's unique ID
+	Clock int
+	IsVisible boolean
+	CharVal string // should have length 1
+	PrevChar *W-Character
+	NextChar *W-Character
 }
 
 // args in WriteToDoc(args)
@@ -78,12 +78,12 @@ func GenerateIns(pos int, char string) {
 	cNext := getIthVisible(document, pos + 1)
 
 	wChar := new(W-Character)
-	wChar.siteID = replicaID
-	wChar.clock = replicaClock
-	wChar.isVisible = true
-	wChar.charVal = char
-	wChar.prevChar = cPrev
-	wChar.nextChar = cNext
+	wChar.SiteID = replicaID
+	wChar.Clock = replicaClock
+	wChar.IsVisible = true
+	wChar.CharVal = char
+	wChar.PrevChar = cPrev
+	wChar.NextChar = cNext
 
 	IntegrateIns(wChar, cPrev, cNext)
 	// TODO: broadcast ins(wchar)
@@ -103,7 +103,7 @@ func isExecutable(op *Operation) {
 	if op.OpType == "del" {
 		return Contains(document, wChar) // TODO: change document arg
 	} else {
-		return Contains(document, wChar.prevChar) && Contains(document, wChar.nextChar) // TODO: change document arg
+		return Contains(document, wChar.PrevChar) && Contains(document, wChar.NextChar) // TODO: change document arg
 	}
 }
 
@@ -112,7 +112,7 @@ func receiveOperation(op *Operation) {
 }
 
 func IntegrateDel(wChar *W-Character) {
-	wChar.isVisible = false
+	wChar.IsVisible = false
 }
 
 func IntegrateIns(wChar *W-Character, cPrev *W-Character, cNext *W-Character) {
@@ -125,12 +125,12 @@ func getIthVisible(doc *Document, i int) *W-Character {
 	wChar := doc.Contents
 
 	for wChar != nil { // TODO: check termination conditions
-		if index == i && wChar.isVisible { // found ith visible
+		if index == i && wChar.IsVisible { // found ith visible
 			return wChar
-		} else if !wChar.isVisible{ // current character is not visible, don't increment index
-			wChar = wChar.nextChar
+		} else if !wChar.IsVisible{ // current character is not visible, don't increment index
+			wChar = wChar.NextChar
 		} else { // current character is not ith but is visible
-			wChar = wChar.nextChar
+			wChar = wChar.NextChar
 			index += 1
 		}
 	}
@@ -142,7 +142,7 @@ func Contains(doc *Document, wChar *W-Character) boolean { // TODO
 	docChar = doc.Contents
 
 	for docChar != nil {
-		if docChar.siteID == wChar.siteID && docChar.clock == wChar.clock {
+		if docChar.SiteID == wChar.SiteID && docChar.Clock == wChar.Clock {
 			return true
 		} else {
 			docChar = docChar.nextChar
