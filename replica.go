@@ -18,8 +18,8 @@ type W-Character struct {
 	clock int
 	isVisible boolean
 	charVal string // should have length 1
-	prevChar W-Character
-	nextChar W-Character
+	prevChar *W-Character
+	nextChar *W-Character
 }
 
 // args in WriteToDoc(args)
@@ -47,9 +47,24 @@ type Replica struct {
 	RPCAddr string
 }
 
+// struct to represent operations
+type Operation struct {
+	OpChar *W-Character
+	OpType string
+}
+
 // string to containt contents of document -> will be changed to a different data structure later on
-var documentContents string
+//var documentContents string
 //var documentContents []W-Character
+// struct to represent a document
+type Document struct {
+	DocName string
+	Contents *W-Character
+}
+var document *Document // placeholder document, should have a listing of docs
+
+// each replica has a unique id
+var replicaID string
 
 // each replica has a logical clock associated with it
 var replicaClock int
@@ -59,48 +74,83 @@ func GenerateIns(pos int, char string) {
 	// need to increment clock
 	replicaClock += 1
 
+	cPrev := getIthVisible(document, pos) // TODO: change document arg
+	cNext := getIthVisible(document, pos + 1)
 
+	wChar := new(W-Character)
+	wChar.siteID = replicaID
+	wChar.clock = replicaClock
+	wChar.isVisible = true
+	wChar.charVal = char
+	wChar.prevChar = cPrev
+	wChar.nextChar = cNext
+
+	IntegrateIns(wChar, cPrev, cNext)
+	// TODO: broadcast ins(wchar)
 }
 
 func GenerateDel(pos int) {
+	wChar := getIthVisible(document, pos) // TODO: change document arg
 
+	IntegrateDel(wChar)
+	// TODO: broadcast del(wchar)
 }
 
 // check preconditions of operation
-func isExecutable() {
+func isExecutable(op *Operation) {
+	wChar := op.OpChar
 
+	if op.OpType == "del" {
+		return Contains(document, wChar) // TODO: change document arg
+	} else {
+		return Contains(document, wChar.prevChar) && Contains(document, wChar.nextChar) // TODO: change document arg
+	}
 }
 
-func receiveOperation() {
-
+func receiveOperation(op *Operation) {
+	// TODO: add op to pool
 }
 
-func IntegrateDel() {
-
+func IntegrateDel(wChar *W-Character) {
+	wChar.isVisible = false
 }
 
-func IntegrateIns() {
+func IntegrateIns(wChar *W-Character, cPrev *W-Character, cNext *W-Character) {
 
 }
  
 // return the ith visible character in a string of W-Characters - what happens when i is larger than string length?
-func getIthVisible(str []W-Character, i int) W-Character {
+func getIthVisible(doc *Document, i int) *W-Character {
 	index := 0
-	count := 0
+	wChar := doc.Contents
 
-	for j, wchar := range str {
-		if count == i {
-			break
+	for wChar != nil { // TODO: check termination conditions
+		if index == i && wChar.isVisible { // found ith visible
+			return wChar
+		} else if !wChar.isVisible{ // current character is not visible, don't increment index
+			wChar = wChar.nextChar
+		} else { // current character is not ith but is visible
+			wChar = wChar.nextChar
+			index += 1
 		}
-		if wchar.isVisible {
-			count += 1
-		}
-		index = j
 	}
-	return str[index]
+
+	return nil // no ith visible character
 }
 
+func Contains(doc *Document, wChar *W-Character) boolean { // TODO
+	docChar = doc.Contents
 
+	for docChar != nil {
+		if docChar.siteID == wChar.siteID && docChar.clock == wChar.clock {
+			return true
+		} else {
+			docChar = docChar.nextChar
+		}
+	}
+
+	return false
+}
 
 type ReplicaService struct {}
 
@@ -158,7 +208,7 @@ func main() {
 	
 	replicaAddrString := os.Args[1]
 	frontEndAddrString := os.Args[2]
-	repID := os.Args[3]
+	replicaID = os.Args[3]
 
 	replicaAddr, err := net.ResolveUDPAddr("udp", replicaAddrString)
 	checkError(err)
@@ -171,7 +221,7 @@ func main() {
 	conn, err := net.DialUDP("udp", replicaAddr, frontEndAddr)
 	checkError(err)
 
-	replica := Replica{repID, replicaAddrString}
+	replica := Replica{replicaID, replicaAddrString}
 	jsonReplica, err := json.Marshal(replica)
 
 	// send info about replica to front end node
@@ -182,7 +232,8 @@ func main() {
 	}
 
 	// Initialize contents
-	documentContents = ""
+	// documentContents = ""
+	document = nil
 
 	// handle RPC calls from clients
 	address := flag.String("address", replicaAddrString, "")
