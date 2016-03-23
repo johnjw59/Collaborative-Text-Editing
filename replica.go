@@ -8,18 +8,20 @@ import (
 	"log"
 	"net/http"
 	"encoding/json"
+	"text/template"
 	"github.com/gorilla/rpc"
+	"github.com/gorilla/websocket"
 	gorillaJson "github.com/gorilla/rpc/json"
-	"github.com/arcaneiceman/GoVector/govec"
+	//"github.com/arcaneiceman/GoVector/govec"
 )
 
-type W-Character struct {
+type WCharacter struct {
 	siteID string // site id and clock make up the W-Character's unique ID
 	clock int
-	isVisible boolean
+	isVisible bool
 	charVal string // should have length 1
-	prevChar W-Character
-	nextChar W-Character
+	prevChar *WCharacter
+	nextChar *WCharacter
 }
 
 // args in WriteToDoc(args)
@@ -46,6 +48,9 @@ type Replica struct {
 	NodeId  string
 	RPCAddr string
 }
+
+//
+var ws *websocket.Conn
 
 // string to containt contents of document -> will be changed to a different data structure later on
 var documentContents string
@@ -84,7 +89,7 @@ func IntegrateIns() {
 }
  
 // return the ith visible character in a string of W-Characters - what happens when i is larger than string length?
-func getIthVisible(str []W-Character, i int) W-Character {
+func getIthVisible(str []WCharacter, i int) WCharacter {
 	index := 0
 	count := 0
 
@@ -140,6 +145,9 @@ func (rs *ReplicaService) SetActiveNodes(r *http.Request, args *ActiveReplicas, 
 }
 
 var activeReplicasMap map[string]string
+var upgrader = websocket.Upgrader{} // use default options
+var httpAddress = flag.String("addr", ":8080", "http service address")
+var homeTempl = template.Must(template.ParseFiles("index.html"))
 
 // Main server loop.
 func main() {
@@ -152,7 +160,7 @@ func main() {
 	}
 
 	// govector library for vector clock logs
-	Logger := govec.Initialize("client", "clientlogfile")
+	//Logger := govec.Initialize("client", "clientlogfile")
 	
 	activeReplicasMap = make(map[string]string)
 	
@@ -184,14 +192,56 @@ func main() {
 	// Initialize contents
 	documentContents = ""
 
-	// handle RPC calls from clients
+	// Start HTTP server
+	flag.Parse()
+	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./"))))
+  http.HandleFunc("./", ServeHome)
+  http.HandleFunc("/ws", ServeWS)
+  err = http.ListenAndServe(*httpAddress, nil)
+  if err != nil {
+    log.Fatal("Error on HTTP serve: ", err)
+  }
+
+	// handle RPC calls from other Replicas
 	address := flag.String("address", replicaAddrString, "")
 	server := rpc.NewServer()
 	server.RegisterCodec(gorillaJson.NewCodec(), "application/json")
 	server.RegisterCodec(gorillaJson.NewCodec(), "application/json;charset=UTF-8")
 	server.RegisterService(new(ReplicaService), "")
-	http.Handle("/rpc/", server)
+	http.Handle("/rpc", server)
 	log.Fatal(http.ListenAndServe(*address, nil))
+}
+
+// Serve the home page at localhost:8080
+func ServeHome(w http.ResponseWriter, r *http.Request) {
+  if r.URL.Path != "/" {
+    http.Error(w, "Not found", 404)
+    return
+  }
+  if r.Method != "GET" {
+    http.Error(w, "Method not allowed", 405)
+    return
+  }
+  w.Header().Set("Content-Type", "text/html; charset=utf-8")
+  homeTempl.Execute(w, "ws://" + r.Host + "/ws")
+}
+
+// Handles websocket requests from the web-app
+func ServeWS(w http.ResponseWriter, r *http.Request) {
+	ws, err := upgrader.Upgrade(w, r, nil)
+	checkError(err)
+
+  for {
+    mt, _, err := ws.ReadMessage()
+    if err != nil {
+      log.Println("read:", err)
+      break
+    }
+
+    // Update document when insertion/deletions are made
+    fmt.Println(mt)
+  }
+  ws.Close()
 }
 
 // If error is non-nil, print it out and halt.

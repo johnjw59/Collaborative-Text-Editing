@@ -5,12 +5,9 @@ import (
 	"os"
 	"net"
 	"encoding/json"
-	"flag"
 	"net/http"
-	"text/template"
 	"log"
 	"bytes"
-	"github.com/gorilla/websocket"
 	gorillaJson "github.com/gorilla/rpc/json"
 )
 
@@ -33,14 +30,10 @@ type Replica struct {
 // key is the replica id and the value is the replica's RCP IP
 var replicaRPCMap map[string]string
 
-var homeTemplate = template.Must(template.ParseFiles("home.html"))
-var upgrader = websocket.Upgrader{} // use default options
-var httpAddress = flag.String("addr", ":8080", "http service address")
-
 // Main server loop.
 func main() {
 	// Parse args.
-	usage := fmt.Sprintf("Usage: %s [client ip:port] [replica-node ip:port]\n",
+	usage := fmt.Sprintf("Usage: %s [front-end ip:port]\n",
 		os.Args[0])
 	if len(os.Args) != 2 {
 		fmt.Printf(usage)
@@ -59,70 +52,7 @@ func main() {
 		fmt.Println("Error on UDP listen: ", err)
 		os.Exit(-1)
 	}
-	
-	go ReplicaListener(replicaConn)
-	
-	flag.Parse()
-	// start HTTP server
-	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./"))))
-	http.HandleFunc("/route", RouteClient)
-	http.HandleFunc("/home", ServeHome)
-	err = http.ListenAndServe(*httpAddress, nil)
-	if err != nil {
-		log.Fatal("Error on HTTP serve: ", err)
-	}
-}
-
-// Send a replica's RPCAddress to client to start communication with it
-func RouteClient(w http.ResponseWriter, r *http.Request) {
-	c, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Print("upgrade:", err)
-		return
-	}
-	defer c.Close()
-	for {
-		mt, _, err := c.ReadMessage()
-		if err != nil {
-			log.Println("read:", err)
-			break
-		}
-		
-		// Randomly pick a replica to route to (note that this is random since the Go runtime randomizes map iteration order) 
-		var addressToSend string
-		for nodeId, RPCAddress := range replicaRPCMap {
-			
-			// Test availability by dialing to the TCP/RPC address
-			_, err := net.Dial("tcp", RPCAddress)
-			if err != nil {
-				delete(replicaRPCMap, nodeId)
-				UpdateReplicas()
-			} else {
-				addressToSend = RPCAddress
-				break	
-			}
-		}
-		
-		err = c.WriteMessage(mt, []byte(addressToSend))
-		if err != nil {
-			log.Println("write:", err)
-			break
-		}
-	}
-}
-
-// Serve the home page at localhost:8080
-func ServeHome(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.Error(w, "Not found", 404)
-		return
-	}
-	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", 405)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	homeTemplate.Execute(w, "ws://" + r.Host + "/route")
+	ReplicaListener(replicaConn)
 }
 
 // Listen for newly connected replica nodes
@@ -148,7 +78,6 @@ func ReplicaListener(conn *net.UDPConn) {
 // Sends the map of active replicas to all replicas.
 // Encodes an HTTP request as an RPC request as gorilla/rpc doesn't give us proper client implementation
 func UpdateReplicas() {
-	
 	for _, RPCAddress := range replicaRPCMap {
 		
 		url := "http://" + RPCAddress + "/rpc/"
