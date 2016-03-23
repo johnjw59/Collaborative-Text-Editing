@@ -137,7 +137,6 @@ func (rs *ReplicaService) ReadFromDoc(r *http.Request, args *ReadArgs, reply *Va
 
 // Set local map of active nodes 
 func (rs *ReplicaService) SetActiveNodes(r *http.Request, args *ActiveReplicas, reply *ValReply) error {
-	
 	activeReplicasMap = args.Replicas	
 	reply.Val = "success"
 	fmt.Println("Updated map of replicas")
@@ -197,16 +196,15 @@ func main() {
 	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./"))))
   http.HandleFunc("./", ServeHome)
   http.HandleFunc("/ws", ServeWS)
-  err = http.ListenAndServe(*httpAddress, nil)
-  if err != nil {
-    log.Fatal("Error on HTTP serve: ", err)
-  }
+  go func() { 
+  	log.Fatal(http.ListenAndServe(*httpAddress, nil)) 
+  }()
 
 	// handle RPC calls from other Replicas
 	address := flag.String("address", replicaAddrString, "")
-	r := mux.NewRouter()
 	server := rpc.NewServer()
 	server.RegisterCodec(gorillaJson.NewCodec(), "application/json")
+	server.RegisterCodec(gorillaJson.NewCodec(), "application/json;charset=UTF-8")
 	server.RegisterService(new(ReplicaService), "")
 	http.Handle("/rpc", server)
 	log.Fatal(http.ListenAndServe(*address, nil))
