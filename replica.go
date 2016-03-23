@@ -7,11 +7,10 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"net/rpc"
 	"encoding/json"
 	"text/template"
-	"github.com/gorilla/rpc"
 	"github.com/gorilla/websocket"
-	gorillaJson "github.com/gorilla/rpc/json"
 	//"github.com/arcaneiceman/GoVector/govec"
 )
 
@@ -110,7 +109,7 @@ func getIthVisible(str []WCharacter, i int) WCharacter {
 type ReplicaService struct {}
 
 // Write to Doc
-func (rs *ReplicaService) WriteToDoc(r *http.Request, args *WriteArgs, reply *ValReply) error {
+func (rs *ReplicaService) WriteToDoc(args *WriteArgs, reply *ValReply) error {
 	// Acquire mutex for exclusive access to kvmap.
 	//documentContents.Lock()
 	// Defer mutex unlock to (any) function exit.
@@ -124,7 +123,7 @@ func (rs *ReplicaService) WriteToDoc(r *http.Request, args *WriteArgs, reply *Va
 
 
 // Read from Doc
-func (rs *ReplicaService) ReadFromDoc(r *http.Request, args *ReadArgs, reply *ValReply) error {
+func (rs *ReplicaService) ReadFromDoc(args *ReadArgs, reply *ValReply) error {
 	// Acquire mutex for exclusive access to kvmap.
 	//documentContents.Lock()
 	// Defer mutex unlock to (any) function exit.
@@ -136,7 +135,7 @@ func (rs *ReplicaService) ReadFromDoc(r *http.Request, args *ReadArgs, reply *Va
 }
 
 // Set local map of active nodes 
-func (rs *ReplicaService) SetActiveNodes(r *http.Request, args *ActiveReplicas, reply *ValReply) error {
+func (rs *ReplicaService) SetActiveNodes(args *ActiveReplicas, reply *ValReply) error {
 	activeReplicasMap = args.Replicas	
 	reply.Val = "success"
 	fmt.Println("Updated map of replicas")
@@ -159,7 +158,7 @@ func main() {
 	}
 
 	// govector library for vector clock logs
-	//Logger := govec.Initialize("client", "clientlogfile")
+	// Logger := govec.Initialize("client", "clientlogfile")
 	
 	activeReplicasMap = make(map[string]string)
 	
@@ -173,11 +172,10 @@ func main() {
 	frontEndAddr, err := net.ResolveUDPAddr("udp", frontEndAddrString)
 	checkError(err)
 
-	fmt.Println("dialing to front end")
 	// Connect to the front-end node
+	fmt.Println("dialing to front end")
 	conn, err := net.DialUDP("udp", replicaAddr, frontEndAddr)
 	checkError(err)
-
 	replica := Replica{repID, replicaAddrString}
 	jsonReplica, err := json.Marshal(replica)
 
@@ -201,13 +199,14 @@ func main() {
   }()
 
 	// handle RPC calls from other Replicas
-	address := flag.String("address", replicaAddrString, "")
-	server := rpc.NewServer()
-	server.RegisterCodec(gorillaJson.NewCodec(), "application/json")
-	server.RegisterCodec(gorillaJson.NewCodec(), "application/json;charset=UTF-8")
-	server.RegisterService(new(ReplicaService), "")
-	http.Handle("/rpc", server)
-	log.Fatal(http.ListenAndServe(*address, nil))
+  rpc.Register(&ReplicaService{})
+  r, err := net.Listen("tcp", replicaAddrString)
+  checkError(err)
+  for {
+  	conn, err := r.Accept()
+  	checkError(err)
+  	go rpc.ServeConn(conn)
+  }
 }
 
 // Serve the home page at localhost:8080

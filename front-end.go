@@ -5,10 +5,8 @@ import (
 	"os"
 	"net"
 	"encoding/json"
-	"net/http"
+	"net/rpc"
 	"log"
-	"bytes"
-	gorillaJson "github.com/gorilla/rpc/json"
 )
 
 // Reply from service for all API calls
@@ -76,34 +74,20 @@ func ReplicaListener(conn *net.UDPConn) {
 }
 
 // Sends the map of active replicas to all replicas.
-// Encodes an HTTP request as an RPC request as gorilla/rpc doesn't give us proper client implementation
 func UpdateReplicas() {
-	for _, RPCAddress := range replicaRPCMap {
-		
-		url := "http://" + RPCAddress + "/rpc"
-		args := &ActiveReplicas{replicaRPCMap}
-		
-		message, err := gorillaJson.EncodeClientRequest("ReplicaService.SetActiveNodes", args)
+	for id, RPCAddress := range replicaRPCMap {
+		r, err := rpc.Dial("tcp", RPCAddress)
 		if err != nil {
-			log.Fatalf("%s", err)
+			log.Fatalf("Cannot reach Replica %s\n%s", id, err)
 		}
-		req, err := http.NewRequest("POST", url, bytes.NewBuffer(message))
-		if err != nil {
-			log.Fatalf("%s", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		client := new(http.Client)
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Fatalf("Error in sending request to %s. %s", url, err)
-		}
-		defer resp.Body.Close()
 
+		args := &ActiveReplicas{replicaRPCMap}
 		var result ValReply
-		err = gorillaJson.DecodeClientResponse(resp.Body, &result)
+
+		err = r.Call("ReplicaService.SetActiveNodes", args, &result)
 		if err != nil {
-			log.Fatalf("Couldn't decode response. %s", err)
-		}	
+			log.Fatalf("Error updating Replica %s\n%s", id, err)
+		}
 	}
 }
 
