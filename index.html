@@ -1,19 +1,19 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
   <head>
-    <meta name="generator"
-    content="HTML Tidy for HTML5 (experimental) for Windows https://github.com/w3c/tidy-html5/tree/c63cc39" />
     <title>Collaborative Text Editing</title>
     <link rel="stylesheet" type="text/css" href="/css/bootstrap.min.css" />
     <link rel="stylesheet" type="text/css" href="/css/font-awesome.min.css" />
-    <script src="//ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
-    <script src="/js/bootstrap.min.js"></script>
-	  <script src="/js/jquery.jsonrpc.js"></script>
-    <script src="/js/main.js"></script>
+
+	  <script src="/lib/angular.min.js"></script>
+    <script src="/lib/caret.js"></script>
+    <script src="/js/app.js"></script>
   </head>
-  <body>
-    <div id="log"></div>
-    <p>Home</p>
-    <p id="rpc_address"></p>
+
+  <body ng-app="app">
+    <div ng-controller="main">
+      <h1>Collaborative Text Editing</h1>
+      <textarea ng-model="document" eb-caret="cursor" style="width: 95%; height: 800px; margin-left: 2.5%;"></textarea>
+    </div>
   </body>
 </html>
