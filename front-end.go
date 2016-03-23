@@ -1,12 +1,12 @@
 package main
 
 import (
-	"fmt"
-	"os"
-	"net"
 	"encoding/json"
-	"net/rpc"
+	"fmt"
 	"log"
+	"net"
+	"net/rpc"
+	"os"
 )
 
 // Reply from service for all API calls
@@ -37,13 +37,13 @@ func main() {
 		fmt.Printf(usage)
 		os.Exit(1)
 	}
-	
+
 	replicaRPCMap = make(map[string]string)
 
 	replicaAddrString := os.Args[1]
 	replicaAddr, err := net.ResolveUDPAddr("udp", replicaAddrString)
 	checkError(err)
-	
+
 	// start UDP server to listen for replica node activity
 	replicaConn, err := net.ListenUDP("udp", replicaAddr)
 	if err != nil {
@@ -55,7 +55,7 @@ func main() {
 
 // Listen for newly connected replica nodes
 func ReplicaListener(conn *net.UDPConn) {
-	
+
 	buf := make([]byte, 1024)
 	for {
 		readLength, _, err := conn.ReadFromUDP(buf)
