@@ -48,6 +48,13 @@ type Replica struct {
 	RPCAddr string
 }
 
+// Communication from web-app
+type AppMessage struct {
+	Op  string
+	Pos int
+	Val string
+}
+
 //
 var ws *websocket.Conn
 
@@ -222,19 +229,21 @@ func ServeHome(w http.ResponseWriter, r *http.Request) {
 
 // Handles websocket requests from the web-app
 func ServeWS(w http.ResponseWriter, r *http.Request) {
+	var cmd AppMessage
 	ws, err := upgrader.Upgrade(w, r, nil)
 	checkError(err)
 
 	for {
-		mt, _, err := ws.ReadMessage()
+		err := ws.ReadJSON(&cmd)
 		if err != nil {
-			log.Println("read:", err)
+			log.Println("readWS:", err)
 			break
 		}
 
-		// Update document when insertion/deletions are made
-		fmt.Println(mt)
+		// Interpret message and handle different cases (ins/del)
+		fmt.Println(cmd)
 	}
+
 	ws.Close()
 }
 
