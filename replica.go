@@ -11,6 +11,7 @@ import (
 	"net/rpc"
 	"os"
 	"text/template"
+	"strings"
 	//"github.com/arcaneiceman/GoVector/govec"
 )
 
@@ -40,6 +41,10 @@ type ValReply struct {
 // Info about other active replicas
 type ActiveReplicas struct {
 	Replicas map[string]string
+}
+
+type StorageArgs struct {
+	DocumentId string
 }
 
 // Info about the replica
@@ -146,7 +151,19 @@ func (rs *ReplicaService) SetActiveNodes(args *ActiveReplicas, reply *ValReply) 
 	return nil
 }
 
+// Retrieves a document based on a document id. Used for the persistent document storage
+func (rs *ReplicaService) RetrieveDocument(args *StorageArgs, reply *ValReply) error {
+	documentId := args.DocumentId
+	document, ok := documentsMap[documentId]
+	
+	if ok {
+		reply.Val = document
+	} 
+	return nil
+}
+
 var activeReplicasMap map[string]string
+var documentsMap map[string]string
 var upgrader = websocket.Upgrader{} // use default options
 var httpAddress = flag.String("addr", ":8080", "http service address")
 var homeTempl = template.Must(template.ParseFiles("index.html"))
@@ -176,6 +193,13 @@ func main() {
 	frontEndAddr, err := net.ResolveUDPAddr("udp", frontEndAddrString)
 	checkError(err)
 
+	// check if this replica is to be used for persistent storage
+	if repID == "storage" {
+		documentsMap = make(map[string]string)
+		storageIP := strings.Split(replicaAddrString, ":")[0]
+		httpAddress = flag.String("storage_addr",  storageIP + ":8080", "http storage service address")	
+	}
+	
 	// Connect to the front-end node
 	fmt.Println("dialing to front end")
 	conn, err := net.DialUDP("udp", replicaAddr, frontEndAddr)
@@ -196,7 +220,7 @@ func main() {
 	// Start HTTP server
 	flag.Parse()
 	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./"))))
-	http.HandleFunc("./", ServeHome)
+	http.HandleFunc("/doc/", ServeHome)
 	http.HandleFunc("/ws", ServeWS)
 	go func() {
 		log.Fatal(http.ListenAndServe(*httpAddress, nil))
@@ -215,10 +239,14 @@ func main() {
 
 // Serve the home page at localhost:8080
 func ServeHome(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	
+	if !strings.HasPrefix(r.URL.Path, "/doc/") {
 		http.Error(w, "Not found", 404)
 		return
+	} else {
+		RetrieveDocument(strings.Split(r.URL.Path, "/doc/")[1])
 	}
+	
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", 405)
 		return
@@ -245,6 +273,22 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ws.Close()
+}
+
+// Retrieves documents based on document Id by contacting the storage replica
+func RetrieveDocument(documentId string) {
+	r, err := rpc.Dial("tcp", activeReplicasMap["storage"])
+	if err != nil {
+		log.Fatalf("Cannot reach Storage Replica %s\n%s", "storage", err)
+	}
+
+	args := &StorageArgs{documentId}
+	var result ValReply
+
+	err = r.Call("ReplicaService.RetrieveDocument", args, &result)
+	if err != nil {
+		log.Fatalf("Error retrieving document", "storage", err)
+	}
 }
 
 // If error is non-nil, print it out and halt.
