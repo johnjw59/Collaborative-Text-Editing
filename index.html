@@ -13,7 +13,7 @@
   <body ng-app="app">
     <div ng-controller="main">
       <h1>Collaborative Text Editing</h1>
-      <textarea ng-model="document" ng-keyup="documentEdit($event)" eb-caret="cursor" style="width: 95%; height: 800px; margin-left: 2.5%;"></textarea>
+      <textarea ng-model="document" ng-keypress="documentEdit($event)" ng-keyup="documentEdit($event)" eb-caret="cursor" style="width: 95%; height: 800px; margin-left: 2.5%;"></textarea>
     </div>
   </body>
 </html>

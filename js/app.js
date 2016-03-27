@@ -1,40 +1,38 @@
 angular.module('app', ['eb.caret'])
 
-.controller('main', function($scope, $http, $q) {
-  var ws = new WebSocket('ws://localhost:8080/ws');
+.controller('main', function($scope) {
+  var replica = new WebSocket('replica://localhost:8080/replica');
 
-  /*ws.onopen = function() {
-    ws.send('ping');
-    // Get initial copy of document
-  };*/
+  // Get initial copy of document
+  replica.onopen = function() {
+    replica.send(JSON.stringify({'op': 'init'}));
+  };
 
-  ws.onmessage = function(event) {
-    console.log(event.data);
-    // integrate recieved document
+  // Integrate recieved document
+  replica.onmessage = function(event) {
+    console.log(event);
+    $scope.document = event.data;
+    $scope.$apply();
   };
 
   // Document has been edited. Send changes.
   $scope.documentEdit = function(event) {
-    console.log(event);
+    // Keypress events give text.
+    if (event.type == 'keypress') {
+      // Send insertion
+      replica.send(JSON.stringify({'op': 'ins', 'val': String.fromCharCode(event.charCode), 'pos': $scope.cursor.get}));
 
-    // Check if key pressed is text, backspace, delete or enter (ignore others)
-    if ((event.keyCode >= 32 && event.keyCode <= 136) || event.keyCode == 13) {
-      var char = String.fromCharCode(event.keyCode);
-      if (!event.shiftKey) {
-        char = char.toLowerCase();
+    // Check keyup for Backspace/Delete
+    } else if (event.type == 'keyup') {
+      // Send deletion
+      if (event.keyCode == 8) {
+        // Backspace
+        replica.send(JSON.stringify({'op': 'del', 'pos': $scope.cursor.get -1}));
+      } else if (event.keyCode == 46) {
+        // Delete
+        replica.send(JSON.stringify({'op': 'del', 'pos': $scope.cursor.get}));
       }
-      // Send char to Replica
-      ws.send(JSON.stringify({"op": "ins", "val": char, "pos": 0}));
-    } 
-    else if (event.keyCode == 8) {
-      // send backspace
-      console.log("Backspace");
-    } 
-    else if (event.keyCode == 127) {
-      // send delete
-      console.log("Delete");
     }
-
   };
 
 });

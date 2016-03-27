@@ -252,7 +252,7 @@ func ServeHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	homeTempl.Execute(w, "ws://"+r.Host+"/ws")
+	homeTempl.Execute(w, "ws://" + r.Host + "/ws")
 }
 
 // Handles websocket requests from the web-app
@@ -262,14 +262,23 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 	checkError(err)
 
 	for {
+		cmd = AppMessage{}
 		err := ws.ReadJSON(&cmd)
 		if err != nil {
 			log.Println("readWS:", err)
 			break
 		}
+		fmt.Println(cmd)
 
 		// Interpret message and handle different cases (ins/del)
-		fmt.Println(cmd)
+		switch cmd.Op {
+			case "init":
+				ws.WriteMessage(websocket.TextMessage, []byte(documentContents))
+			case "ins":
+				GenerateIns(cmd.Pos, cmd.Val)
+			case "del":
+				GenerateDel(cmd.Pos)
+		}
 	}
 
 	ws.Close()
