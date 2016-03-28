@@ -192,13 +192,6 @@ func main() {
 
 	frontEndAddr, err := net.ResolveUDPAddr("udp", frontEndAddrString)
 	checkError(err)
-
-	// check if this replica is to be used for persistent storage
-	if repID == "storage" {
-		documentsMap = make(map[string]string)
-		storageIP := strings.Split(replicaAddrString, ":")[0]
-		httpAddress = flag.String("storage_addr",  storageIP + ":8080", "http storage service address")	
-	}
 	
 	// Connect to the front-end node
 	fmt.Println("dialing to front end")
@@ -217,14 +210,19 @@ func main() {
 	// Initialize contents
 	documentContents = ""
 
-	// Start HTTP server
-	flag.Parse()
-	http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./"))))
-	http.HandleFunc("/doc/", ServeHome)
-	http.HandleFunc("/ws", ServeWS)
-	go func() {
-		log.Fatal(http.ListenAndServe(*httpAddress, nil))
-	}()
+	// check if this replica is to be used for persistent storage
+	if repID == "storage" {
+		documentsMap = make(map[string]string)
+	} else {
+		// Start HTTP server
+		flag.Parse()
+		http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./"))))
+		http.HandleFunc("/doc/", ServeHome)
+		http.HandleFunc("/ws", ServeWS)
+		go func() {
+			log.Fatal(http.ListenAndServe(*httpAddress, nil))
+		}()	
+	}
 
 	// handle RPC calls from other Replicas
 	rpc.Register(&ReplicaService{})
@@ -244,6 +242,7 @@ func ServeHome(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not found", 404)
 		return
 	} else {
+		fmt.Println(r.URL.Path)
 		RetrieveDocument(strings.Split(r.URL.Path, "/doc/")[1])
 	}
 	

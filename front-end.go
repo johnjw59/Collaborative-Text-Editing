@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/rpc"
 	"os"
+	"time"
 )
 
 // Reply from service for all API calls
@@ -50,6 +51,8 @@ func main() {
 		fmt.Println("Error on UDP listen: ", err)
 		os.Exit(-1)
 	}
+	
+	go ReplicaActivityListener()
 	ReplicaListener(replicaConn)
 }
 
@@ -70,6 +73,23 @@ func ReplicaListener(conn *net.UDPConn) {
 		} else {
 			checkError(err)
 		}
+	}
+}
+
+// Periodically check each replica for availability (every second)
+// Simple, but probably not as robust as it should be
+func ReplicaActivityListener() {
+
+	for {
+		for nodeId, RPCaddress := range replicaRPCMap {
+			_, err := rpc.Dial("tcp", RPCaddress)
+			if err != nil {
+				delete(replicaRPCMap, nodeId)
+				UpdateReplicas()
+			}
+		}
+		
+		time.Sleep(1000 * time.Millisecond)
 	}
 }
 
