@@ -16,17 +16,17 @@ import (
 )
 
 type WCharacter struct {
-	siteID    string // site id and clock make up the W-Character's unique ID
-	clock     int
-	isVisible bool
-	charVal   string // should have length 1
-	prevChar  *WCharacter
-	nextChar  *WCharacter
+	SiteID    string // site id and clock make up the WCharacter's unique ID
+	Clock     int
+	IsVisible bool
+	CharVal   string // should have length 1
+	PrevChar  *WCharacter
+	NextChar  *WCharacter
 }
 
 // args in WriteToDoc(args)
 type WriteArgs struct {
-	newString string // new string for document contents
+	newString *WCharacter // new string for document contents
 }
 
 // args in ReadFromDoc(args)
@@ -65,7 +65,7 @@ var ws *websocket.Conn
 
 // struct to represent operations
 type Operation struct {
-	OpChar *W-Character
+	OpChar *WCharacter
 	OpType string
 }
 // TODO: Create pool of operations
@@ -73,7 +73,7 @@ type Operation struct {
 // struct to represent a document
 type Document struct {
 	DocName string
-	Contents *W-Character
+	Contents *WCharacter
 }
 var document *Document // placeholder document, should have a listing of docs
 
@@ -91,7 +91,7 @@ func GenerateIns(pos int, char string) {
 	cPrev := getIthVisible(document, pos) // TODO: change document arg
 	cNext := getIthVisible(document, pos + 1)
 
-	wChar := new(W-Character)
+	wChar := new(WCharacter)
 	wChar.SiteID = replicaID
 	wChar.Clock = replicaClock
 	wChar.IsVisible = true
@@ -111,7 +111,7 @@ func GenerateDel(pos int) {
 }
 
 // check preconditions of operation
-func isExecutable(op *Operation) {
+func isExecutable(op *Operation) bool {
 	wChar := op.OpChar
 
 	if op.OpType == "del" {
@@ -125,16 +125,16 @@ func receiveOperation(op *Operation) {
 	// TODO: add op to pool
 }
 
-func IntegrateDel(wChar *W-Character) {
+func IntegrateDel(wChar *WCharacter) {
 	wChar.IsVisible = false
 }
 
-func IntegrateIns(wChar *W-Character, cPrev *W-Character, cNext *W-Character) {
+func IntegrateIns(wChar *WCharacter, cPrev *WCharacter, cNext *WCharacter) {
 	// TODO
 }
 
-// return the ith visible character in a string of W-Characters - what happens when i is larger than string length?
-func getIthVisible(doc *Document, i int) *W-Character {
+// return the ith visible character in a string of WCharacters - what happens when i is larger than string length?
+func getIthVisible(doc *Document, i int) *WCharacter {
 	index := 0
 	wChar := doc.Contents
 
@@ -152,14 +152,14 @@ func getIthVisible(doc *Document, i int) *W-Character {
 	return nil // no ith visible character
 }
 
-func Contains(doc *Document, wChar *W-Character) boolean { // TODO
-	docChar = doc.Contents
+func Contains(doc *Document, wChar *WCharacter) bool { // TODO
+	docChar := doc.Contents
 
 	for docChar != nil {
 		if docChar.SiteID == wChar.SiteID && docChar.Clock == wChar.Clock {
 			return true
 		} else {
-			docChar = docChar.nextChar
+			docChar = docChar.NextChar
 		}
 	}
 
@@ -175,7 +175,7 @@ func (rs *ReplicaService) WriteToDoc(args *WriteArgs, reply *ValReply) error {
 	// Defer mutex unlock to (any) function exit.
 	//defer documentContents.Unlock()
 
-	documentContents = args.newString
+	document.Contents = args.newString
 	reply.Val = ""
 	fmt.Println("Performing Write")
 	return nil
@@ -188,7 +188,7 @@ func (rs *ReplicaService) ReadFromDoc(args *ReadArgs, reply *ValReply) error {
 	// Defer mutex unlock to (any) function exit.
 	//defer documentContents.Unlock()
 
-	reply.Val = documentContents // execute the get
+	reply.Val = document.DocName // execute the get
 	fmt.Println("Performing Read")
 	return nil
 }
@@ -236,6 +236,7 @@ func main() {
 	replicaAddrString := os.Args[1]
 	frontEndAddrString := os.Args[2]
 	replicaID = os.Args[3]
+	replicaClock = 0
 
 	replicaAddr, err := net.ResolveUDPAddr("udp", replicaAddrString)
 	checkError(err)
@@ -275,6 +276,9 @@ func main() {
 			log.Fatal(http.ListenAndServe(*httpAddress, nil))
 		}()	
 	}
+
+	// testing
+	runTests()
 
 	// handle RPC calls from other Replicas
 	rpc.Register(&ReplicaService{})
@@ -324,7 +328,7 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 		// Interpret message and handle different cases (ins/del)
 		switch cmd.Op {
 			case "init":
-				ws.WriteMessage(websocket.TextMessage, []byte(documentContents))
+				ws.WriteMessage(websocket.TextMessage, []byte(constructString(document)))
 			case "ins":
 				GenerateIns(cmd.Pos, cmd.Val)
 			case "del":
@@ -351,6 +355,21 @@ func RetrieveDocument(documentId string) {
 	}
 }
 
+// construct string from a document
+func constructString(doc *Document) string {
+	wchar := doc.Contents
+	contents_str := ""
+
+	for wchar != nil {
+		if wchar.IsVisible {
+			contents_str += wchar.CharVal
+		}
+		wchar = wchar.NextChar
+	}
+	return contents_str
+
+}
+
 // If error is non-nil, print it out and halt.
 func checkError(err error) {
 	if err != nil {
@@ -359,7 +378,134 @@ func checkError(err error) {
 	}
 }
 
-// Tests
-func ithVisibleTest() {
 
+
+// Tests
+
+func runTests() {
+	fmt.Println("Starting testing")
+	constructStringTests()
+	getIthVisibleTests()
+}
+
+func constructStringTests() {
+	var testDoc = new(Document)
+	testDoc.DocName = "testDoc"
+	var docString string
+
+	// test empty contents
+	testDoc.Contents = nil
+	docString = constructString(testDoc)
+	fmt.Printf("Empty doc string: %s\n", docString)
+
+	// single character
+	char1 := WCharacter{
+		SiteID: replicaID, 
+		Clock: replicaClock, 
+		IsVisible: true, 
+		CharVal: "a",
+		PrevChar: nil,
+		NextChar: nil }
+
+	testDoc.Contents = &char1
+	docString = constructString(testDoc)
+	fmt.Printf("Single char in doc: %s\n", docString)
+
+	// add a couple more characters, including one invisible
+	replicaClock += 1
+
+	char2 := WCharacter{
+		SiteID: replicaID, 
+		Clock: replicaClock, 
+		IsVisible: false, 
+		CharVal: "b",
+		PrevChar: &char1,
+		NextChar: nil }
+
+	replicaClock += 1
+
+	char3 := WCharacter{
+		SiteID: replicaID, 
+		Clock: replicaClock, 
+		IsVisible: true, 
+		CharVal: "c",
+		PrevChar: &char2,
+		NextChar: nil }
+
+	char1.NextChar = &char2
+	char2.NextChar = &char3
+
+	docString = constructString(testDoc)
+	fmt.Printf("Multiple characters in doc: %s\n", docString)
+
+	// set all to invisible
+	char1.IsVisible = false
+	char3.IsVisible = false
+	docString = constructString(testDoc)
+	fmt.Printf("All invisible chars in doc: %s\n", docString)
+}
+
+func getIthVisibleTests() {
+	var testDoc = new(Document)
+	testDoc.DocName = "testDoc"
+	var ithVisible *WCharacter
+
+	// test empty contents
+	testDoc.Contents = nil
+	ithVisible = getIthVisible(testDoc, 0)
+	if ithVisible == nil {
+		fmt.Println("Empty doc contents -> no 1st visible")
+	}
+
+	// single character
+	char1 := WCharacter{
+		SiteID: replicaID, 
+		Clock: replicaClock, 
+		IsVisible: true, 
+		CharVal: "a",
+		PrevChar: nil,
+		NextChar: nil }
+
+	testDoc.Contents = &char1
+	ithVisible = getIthVisible(testDoc, 0)
+	if ithVisible != nil {
+		fmt.Printf("1st visible in doc with 1 char: %s\n", ithVisible.CharVal)
+	}
+
+	// add a couple more characters, including one invisible
+	replicaClock += 1
+
+	char2 := WCharacter{
+		SiteID: replicaID, 
+		Clock: replicaClock, 
+		IsVisible: false, 
+		CharVal: "b",
+		PrevChar: &char1,
+		NextChar: nil }
+
+	replicaClock += 1
+
+	char3 := WCharacter{
+		SiteID: replicaID, 
+		Clock: replicaClock, 
+		IsVisible: true, 
+		CharVal: "c",
+		PrevChar: &char2,
+		NextChar: nil }
+
+	char1.NextChar = &char2
+	char2.NextChar = &char3
+
+	ithVisible = getIthVisible(testDoc, 0)
+	if ithVisible != nil {
+		fmt.Printf("1st visible in doc with 2 vis chars and 1 invis: %s\n", ithVisible.CharVal)
+	}
+	ithVisible = getIthVisible(testDoc, 1)
+	if ithVisible != nil {
+		fmt.Printf("2nd visible in doc with 2 vis chars and 1 invis: %s\n", ithVisible.CharVal)
+	}
+	ithVisible = getIthVisible(testDoc, 2)
+	if ithVisible == nil {
+		fmt.Printf("3rd visible in doc with 2 vis chars and 1 invis does not exist")
+	}
 }
