@@ -87,6 +87,7 @@ var replicaClock int
 func GenerateIns(pos int, char string) {
 	// need to increment clock
 	replicaClock += 1
+
 	cPrev := getIthVisible(document, pos) // TODO: change document arg
 	cNext := getIthVisible(document, pos + 1)
 
