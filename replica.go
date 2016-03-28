@@ -52,10 +52,8 @@ type Operation struct {
 	OpChar *W-Character
 	OpType string
 }
+// TODO: Create pool of operations
 
-// string to containt contents of document -> will be changed to a different data structure later on
-//var documentContents string
-//var documentContents []W-Character
 // struct to represent a document
 type Document struct {
 	DocName string
@@ -116,7 +114,7 @@ func IntegrateDel(wChar *W-Character) {
 }
 
 func IntegrateIns(wChar *W-Character, cPrev *W-Character, cNext *W-Character) {
-
+	// TODO
 }
  
 // return the ith visible character in a string of W-Characters - what happens when i is larger than string length?
