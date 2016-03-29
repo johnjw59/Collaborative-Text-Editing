@@ -4,6 +4,7 @@
     <title>Collaborative Text Editing</title>
     <link rel="stylesheet" type="text/css" href="/css/bootstrap.min.css" />
     <link rel="stylesheet" type="text/css" href="/css/font-awesome.min.css" />
+	<link rel="stylesheet" type="text/css" href="/css/app.css" />
 
 	  <script src="/lib/angular.min.js"></script>
     <script src="/lib/caret.js"></script>
@@ -12,8 +13,11 @@
 
   <body ng-app="app">
     <div ng-controller="main">
-      <h1>Collaborative Text Editing</h1>
-      <textarea ng-model="document" ng-keypress="documentEdit($event)" ng-keyup="documentEdit($event)" eb-caret="cursor" style="width: 95%; height: 800px; margin-left: 2.5%;"></textarea>
+		 <ul>
+		  <li><h1 style="margin:45px;">Collaborative Text Editing</h1></li>
+		  <li style="float:right"><h3 ng-bind="shareLink" style="margin:45px;"></h3></li>
+		</ul> 
+      <textarea ng-model="document" ng-keypress="documentEdit($event)" ng-keyup="documentEdit($event)" eb-caret="cursor"></textarea>
     </div>
   </body>
 </html>

@@ -12,6 +12,8 @@ import (
 	"os"
 	"text/template"
 	"strings"
+	"math/rand"
+	"time"
 	//"github.com/arcaneiceman/GoVector/govec"
 )
 
@@ -201,19 +203,35 @@ func (rs *ReplicaService) SetActiveNodes(args *ActiveReplicas, reply *ValReply) 
 	return nil
 }
 
+// Stores a document based on a document id. Used for the persistent document storage
+// ** Note that this function currently just initializes the key in the storage replica's
+// document map and does not save any actual document data
+func (rs *ReplicaService) StoreDocument(args *StorageArgs, reply *ValReply) error {
+	documentId := args.DocumentId
+	documentsMap[documentId] = "some test value"
+	fmt.Println("Stored document: " + documentId)
+	reply.Val = "success"
+	return nil
+}
+
 // Retrieves a document based on a document id. Used for the persistent document storage
+// TODO: return a Document object
 func (rs *ReplicaService) RetrieveDocument(args *StorageArgs, reply *ValReply) error {
 	documentId := args.DocumentId
 	document, ok := documentsMap[documentId]
 	
 	if ok {
+		fmt.Println("Retrieved document: " + documentId)
 		reply.Val = document
-	} 
+	} else {
+		fmt.Println("Document " + documentId + " does not exist")
+	}
+	
 	return nil
 }
 
 var activeReplicasMap map[string]string
-var documentsMap map[string]string
+var documentsMap map[string]string // TODO: change value type to Document
 var upgrader = websocket.Upgrader{} // use default options
 var httpAddress = flag.String("addr", ":8080", "http service address")
 var homeTempl = template.Must(template.ParseFiles("index.html"))
@@ -297,9 +315,9 @@ func ServeHome(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(r.URL.Path, "/doc/") {
 		http.Error(w, "Not found", 404)
 		return
-	} else {
-		fmt.Println(r.URL.Path)
-		RetrieveDocument(strings.Split(r.URL.Path, "/doc/")[1])
+	} else if (strings.Split(r.URL.Path, "/doc/")[1] == "") {
+		http.Error(w, "Document Id is invalid", 404)
+		return
 	}
 	
 	if r.Method != "GET" {
@@ -328,7 +346,12 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 		// Interpret message and handle different cases (ins/del)
 		switch cmd.Op {
 			case "init":
-				ws.WriteMessage(websocket.TextMessage, []byte(constructString(document)))
+				documentId := CreateDocumentId(9)
+				StoreDocument(documentId)
+				ws.WriteMessage(websocket.TextMessage, []byte(documentId))
+			case "retrieve":
+				document := RetrieveDocument(cmd.Val) 
+				ws.WriteMessage(websocket.TextMessage, []byte(document))
 			case "ins":
 				GenerateIns(cmd.Pos, cmd.Val)
 			case "del":
@@ -339,9 +362,40 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 	ws.Close()
 }
 
+// Store documents based on document Id by contacting the storage replica
+func StoreDocument(documentId string) {
+	
+	storageIP, ok := activeReplicasMap["storage"]
+	if !ok {
+		fmt.Println("Storage replica has not been initialized")
+		return 
+	}
+
+	r, err := rpc.Dial("tcp", storageIP)
+	if err != nil {
+		log.Fatalf("Cannot reach Storage Replica %s\n%s", "storage", err)
+		return
+	}
+
+	args := &StorageArgs{documentId}
+	var result ValReply
+
+	err = r.Call("ReplicaService.StoreDocument", args, &result)
+	if err != nil {
+		log.Fatalf("Error retrieving document", "storage", err)
+	}	
+}
+
 // Retrieves documents based on document Id by contacting the storage replica
-func RetrieveDocument(documentId string) {
-	r, err := rpc.Dial("tcp", activeReplicasMap["storage"])
+func RetrieveDocument(documentId string) string {
+	
+	storageIP, ok := activeReplicasMap["storage"]
+	if !ok {
+		fmt.Println("Storage replica has not been initialized")
+		return ""
+	}
+
+	r, err := rpc.Dial("tcp", storageIP)
 	if err != nil {
 		log.Fatalf("Cannot reach Storage Replica %s\n%s", "storage", err)
 	}
@@ -353,6 +407,8 @@ func RetrieveDocument(documentId string) {
 	if err != nil {
 		log.Fatalf("Error retrieving document", "storage", err)
 	}
+	
+	return result.Val
 }
 
 // construct string from a document
@@ -368,6 +424,17 @@ func constructString(doc *Document) string {
 	}
 	return contents_str
 
+}
+
+// Returns a random string of size strlen
+func CreateDocumentId(strlen int) string {
+	rand.Seed(time.Now().UTC().UnixNano())
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	result := make([]byte, strlen)
+	for i := 0; i < strlen; i++ {
+		result[i] = chars[rand.Intn(len(chars))]
+	}
+	return string(result)
 }
 
 // If error is non-nil, print it out and halt.
@@ -506,6 +573,6 @@ func getIthVisibleTests() {
 	}
 	ithVisible = getIthVisible(testDoc, 2)
 	if ithVisible == nil {
-		fmt.Printf("3rd visible in doc with 2 vis chars and 1 invis does not exist")
+		fmt.Printf("3rd visible in doc with 2 vis chars and 1 invis does not exist\n")
 	}
 }
