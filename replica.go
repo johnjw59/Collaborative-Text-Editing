@@ -16,12 +16,11 @@ import (
 )
 
 type WCharacter struct {
-	SiteID    string // site id and clock make up the WCharacter's unique ID
-	Clock     int
+	ID    [2]int // site id and clock make up the WCharacter's unique ID
 	IsVisible bool
 	CharVal   string // should have length 1
-	PrevChar  *WCharacter
-	NextChar  *WCharacter
+	PrevID	[2]int
+	NextID  [2]int
 }
 
 // args in WriteToDoc(args)
@@ -68,20 +67,34 @@ type Operation struct {
 	OpChar *WCharacter
 	OpType string
 }
-// TODO: Create pool of operations
 
 // struct to represent a document
 type Document struct {
 	DocName string
-	Contents *WCharacter
+	WString []WCharacter // ordered string of WCharacters
+	WCharDic map[string]WCharacter // dictionary of WCharacters (each WCharacter must retain original next/prev)
+	opPool []*Operation
 }
+
+// special start WCharacter, ID is such that it comes before every char and its nextID comes after every char
+startChar := WCharacter {
+	ID: []int{0,0},
+	IsVisible: true, 
+	CharVal: "",
+	PrevID: nil,
+	NextiD: []int{99999,99999} }
+
+// special start WCharacter
+startChar := WCharacter {
+	ID: []int{99999,99999},
+	IsVisible: true, 
+	CharVal: "",
+	PrevChar: []int{0,0},
+	NextChar: nil }
+
 var document *Document // placeholder document, should have a listing of docs
-
-// each replica has a unique id
-var replicaID string
-
-// each replica has a logical clock associated with it
-var replicaClock int
+var replicaID int // each replica has a unique id
+var replicaClock int // each replica has a logical clock associated with it
 
 // WOOT Methods - three stage process of making changes
 func GenerateIns(pos int, char string) {
@@ -90,6 +103,11 @@ func GenerateIns(pos int, char string) {
 
 	cPrev := getIthVisible(document, pos) // TODO: change document arg
 	cNext := getIthVisible(document, pos + 1)
+
+	if cPrev == nil || cNext == nil {
+		fmt.Println("Failed to get next and prev")
+		return
+	}
 
 	wChar := new(WCharacter)
 	wChar.SiteID = replicaID
@@ -121,8 +139,9 @@ func isExecutable(op *Operation) bool {
 	}
 }
 
+// this function is where broadcasted operations are handled
 func receiveOperation(op *Operation) {
-	// TODO: add op to pool
+	opPool = append(opPool, op)
 }
 
 func IntegrateDel(wChar *WCharacter) {
@@ -131,9 +150,12 @@ func IntegrateDel(wChar *WCharacter) {
 
 func IntegrateIns(wChar *WCharacter, cPrev *WCharacter, cNext *WCharacter) {
 	// TODO
+	docString := constructString()
 }
 
-// return the ith visible character in a string of WCharacters - what happens when i is larger than string length?
+func pos
+
+// return the ith visible character in a string of WCharacters
 func getIthVisible(doc *Document, i int) *WCharacter {
 	index := 0
 	wChar := doc.Contents
@@ -148,7 +170,6 @@ func getIthVisible(doc *Document, i int) *WCharacter {
 			index += 1
 		}
 	}
-
 	return nil // no ith visible character
 }
 
@@ -162,32 +183,41 @@ func Contains(doc *Document, wChar *WCharacter) bool { // TODO
 			docChar = docChar.NextChar
 		}
 	}
-
 	return false
 }
 
+// get subsequence of wstring between prechar and nextchar
+func subsequence(wstring *WCharacter, prevChar *WCharacter, nextChar *WCharacter) *WCharacter {
+	curChar := wstring
+	subseq := new(WCharacter)
+
+	// find prevChar in wstring
+	for curChar != prevChar {
+		curChar = curChar.NextChar
+	}
+
+	// add to subseq until reaching nextChar
+	for curChar != nextChar {
+		*subseq = *curChar
+		curChar = curChar.NextChar
+	}
+	subeq.NextChar = nil
+
+}
+
+
 type ReplicaService struct {}
 
-// Write to Doc
+// Write to Doc - CAN DELETE?
 func (rs *ReplicaService) WriteToDoc(args *WriteArgs, reply *ValReply) error {
-	// Acquire mutex for exclusive access to kvmap.
-	//documentContents.Lock()
-	// Defer mutex unlock to (any) function exit.
-	//defer documentContents.Unlock()
-
 	document.Contents = args.newString
 	reply.Val = ""
 	fmt.Println("Performing Write")
 	return nil
 }
 
-// Read from Doc
+// Read from Doc - CAN DELETE?
 func (rs *ReplicaService) ReadFromDoc(args *ReadArgs, reply *ValReply) error {
-	// Acquire mutex for exclusive access to kvmap.
-	//documentContents.Lock()
-	// Defer mutex unlock to (any) function exit.
-	//defer documentContents.Unlock()
-
 	reply.Val = document.DocName // execute the get
 	fmt.Println("Performing Read")
 	return nil
@@ -232,6 +262,9 @@ func main() {
 	// Logger := govec.Initialize("client", "clientlogfile")
 
 	activeReplicasMap = make(map[string]string)
+
+	// init operation pool
+	opPool = make([]*Operation, 0)
 
 	replicaAddrString := os.Args[1]
 	frontEndAddrString := os.Args[2]
@@ -381,7 +414,7 @@ func checkError(err error) {
 
 
 // Tests
-
+/*
 func runTests() {
 	fmt.Println("Starting testing")
 	constructStringTests()
@@ -506,6 +539,15 @@ func getIthVisibleTests() {
 	}
 	ithVisible = getIthVisible(testDoc, 2)
 	if ithVisible == nil {
-		fmt.Printf("3rd visible in doc with 2 vis chars and 1 invis does not exist")
+		fmt.Println("3rd visible in doc with 2 vis chars and 1 invis does not exist")
 	}
 }
+
+func containsTests() {
+
+}
+
+func subsequenceTests() {
+
+}
+*/
