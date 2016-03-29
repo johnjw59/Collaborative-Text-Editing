@@ -176,6 +176,21 @@ func (doc *Document) Insert(char WCharacter, p int) {
 	// also add to WCharDic
 	doc.WCharDic[strconv.Itoa(char.ID[0]) + "-" + strconv.Itoa(char.ID[1])] = char	
 }
+
+// get subsequence of wstring between prevchar and nextchar
+func (doc *Document) Subsequence(prevChar WCharacter, nextChar WCharacter) []WCharacter {
+	subseq := make([]WCharacter, 0)
+	startPos := doc.Pos(prevChar)
+	endPos := doc.Pos(nextChar)
+
+	for endPos >= (startPos + 2) {
+		startPos += 1
+		subseq = append(subseq, doc.WString[startPos])
+	}
+	return subseq
+
+}
+
 /*
 // return the ith visible character in a string of WCharacters
 func getIthVisible(doc *Document, i int) *WCharacter {
@@ -207,11 +222,6 @@ func Contains(doc Document, wCharID []int) bool { // TODO
 	}
 	return false*/
 	return false
-}
-
-// get subsequence of wstring between prechar and nextchar
-func subsequence(wstring *WCharacter, prevChar *WCharacter, nextChar *WCharacter) {
-	return 
 }
 
 
@@ -470,18 +480,15 @@ func RetrieveDocument(documentId string) string {
 }
 
 // construct string from a document
-func constructString(doc *Document) string {
-	/*wchar := doc.Contents
+func constructString(wString []WCharacter) string {
 	contents_str := ""
 
-	for wchar != nil {
+	for _,wchar := range wString {
 		if wchar.IsVisible {
 			contents_str += wchar.CharVal
 		}
-		wchar = wchar.NextChar
 	}
-	return contents_str*/
-	return ""
+	return contents_str
 }
 
 // Returns a random string of size strlen
@@ -538,7 +545,7 @@ func posTests(doc *Document) {
 	char2 := WCharacter{
 		ID: []int{replicaID, replicaClock},
 		IsVisible: true, 
-		CharVal: "a",
+		CharVal: "b",
 		PrevID: []int{char1.ID[0], char1.ID[1]},
 		NextID: nil }
 
@@ -546,7 +553,7 @@ func posTests(doc *Document) {
 	char3 := WCharacter{
 		ID: []int{replicaID, replicaClock},
 		IsVisible: true, 
-		CharVal: "a",
+		CharVal: "c",
 		PrevID: []int{startChar.ID[0], startChar.ID[1]},
 		NextID: nil }
 
@@ -558,142 +565,42 @@ func posTests(doc *Document) {
 	fmt.Printf("Position of char2: %d\n", posChar2)
 	fmt.Printf("Position of char3: %d\n", posChar3)
 
+	// print out current WString
+	docString := constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
+
+	// test inserts
 	fmt.Println("inserting char3 at position 2")
 	doc.Insert(char3, 2)
 	posChar2 = doc.Pos(char2)
 	posChar3 = doc.Pos(char3)
 	fmt.Printf("Position of char2: %d\n", posChar2)
 	fmt.Printf("Position of char3: %d\n", posChar3)
-}
-/*
 
-func constructStringTests() {
-	var testDoc = new(Document)
-	testDoc.DocName = "testDoc"
-	var docString string
+	// print out current WString
+	docString = constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
 
-	// test empty contents
-	testDoc.Contents = nil
-	docString = constructString(testDoc)
-	fmt.Printf("Empty doc string: %s\n", docString)
+	// test subsequence
+	subseq := doc.Subsequence(char1, char2)
+	subseqString := constructString(subseq)
+	fmt.Printf("Subsequence between a and b: %s\n", subseqString)
 
-	// single character
-	char1 := WCharacter{
-		SiteID: replicaID, 
-		Clock: replicaClock, 
-		IsVisible: true, 
-		CharVal: "a",
-		PrevChar: nil,
-		NextChar: nil }
-
-	testDoc.Contents = &char1
-	docString = constructString(testDoc)
-	fmt.Printf("Single char in doc: %s\n", docString)
-
-	// add a couple more characters, including one invisible
+	// another subsequence test
 	replicaClock += 1
-
-	char2 := WCharacter{
-		SiteID: replicaID, 
-		Clock: replicaClock, 
-		IsVisible: false, 
-		CharVal: "b",
-		PrevChar: &char1,
-		NextChar: nil }
-
-	replicaClock += 1
-
-	char3 := WCharacter{
-		SiteID: replicaID, 
-		Clock: replicaClock, 
+	char4 := WCharacter{
+		ID: []int{replicaID, replicaClock},
 		IsVisible: true, 
-		CharVal: "c",
-		PrevChar: &char2,
-		NextChar: nil }
+		CharVal: "d",
+		PrevID: []int{startChar.ID[0], startChar.ID[1]},
+		NextID: []int{char2.ID[0], char2.ID[0]} }
 
-	char1.NextChar = &char2
-	char2.NextChar = &char3
+	fmt.Println("Inserting d at position 4")
+	doc.Insert(char4, 4)
+	docString = constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
 
-	docString = constructString(testDoc)
-	fmt.Printf("Multiple characters in doc: %s\n", docString)
-
-	// set all to invisible
-	char1.IsVisible = false
-	char3.IsVisible = false
-	docString = constructString(testDoc)
-	fmt.Printf("All invisible chars in doc: %s\n", docString)
+	subseq = doc.Subsequence(startChar, char4)
+	subseqString = constructString(subseq)
+	fmt.Printf("Subsequence between start and d: %s\n", subseqString)
 }
-
-func getIthVisibleTests() {
-	var testDoc = new(Document)
-	testDoc.DocName = "testDoc"
-	var ithVisible *WCharacter
-
-	// test empty contents
-	testDoc.Contents = nil
-	ithVisible = getIthVisible(testDoc, 0)
-	if ithVisible == nil {
-		fmt.Println("Empty doc contents -> no 1st visible")
-	}
-
-	// single character
-	char1 := WCharacter{
-		SiteID: replicaID, 
-		Clock: replicaClock, 
-		IsVisible: true, 
-		CharVal: "a",
-		PrevChar: nil,
-		NextChar: nil }
-
-	testDoc.Contents = &char1
-	ithVisible = getIthVisible(testDoc, 0)
-	if ithVisible != nil {
-		fmt.Printf("1st visible in doc with 1 char: %s\n", ithVisible.CharVal)
-	}
-
-	// add a couple more characters, including one invisible
-	replicaClock += 1
-
-	char2 := WCharacter{
-		SiteID: replicaID, 
-		Clock: replicaClock, 
-		IsVisible: false, 
-		CharVal: "b",
-		PrevChar: &char1,
-		NextChar: nil }
-
-	replicaClock += 1
-
-	char3 := WCharacter{
-		SiteID: replicaID, 
-		Clock: replicaClock, 
-		IsVisible: true, 
-		CharVal: "c",
-		PrevChar: &char2,
-		NextChar: nil }
-
-	char1.NextChar = &char2
-	char2.NextChar = &char3
-
-	ithVisible = getIthVisible(testDoc, 0)
-	if ithVisible != nil {
-		fmt.Printf("1st visible in doc with 2 vis chars and 1 invis: %s\n", ithVisible.CharVal)
-	}
-	ithVisible = getIthVisible(testDoc, 1)
-	if ithVisible != nil {
-		fmt.Printf("2nd visible in doc with 2 vis chars and 1 invis: %s\n", ithVisible.CharVal)
-	}
-	ithVisible = getIthVisible(testDoc, 2)
-	if ithVisible == nil {
-		fmt.Printf("3rd visible in doc with 2 vis chars and 1 invis does not exist\n")
-	}
-}
-
-func containsTests() {
-
-}
-
-func subsequenceTests() {
-
-}
-*/
