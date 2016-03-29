@@ -137,9 +137,9 @@ func IsExecutable(op *Operation) bool {
 	wChar := op.OpChar
 
 	if op.OpType == "del" {
-		return Contains(document, wChar.ID) // TODO: change document arg
+		return document.Contains(wChar.ID) // TODO: change document arg
 	} else {
-		return Contains(document, wChar.PrevID) && Contains(document, wChar.NextID) // TODO: change document arg
+		return document.Contains(wChar.PrevID) && document.Contains(wChar.NextID) // TODO: change document arg
 	}
 }
 
@@ -188,7 +188,16 @@ func (doc *Document) Subsequence(prevChar WCharacter, nextChar WCharacter) []WCh
 		subseq = append(subseq, doc.WString[startPos])
 	}
 	return subseq
+}
 
+// check if document contains a wChar
+func (doc *Document) Contains(wCharID []int) bool {
+	for _, docChar := range doc.WString {
+		if wCharID[0] == docChar.ID[0] && wCharID[1] == docChar.ID[1] {
+			return true
+		} 
+	}
+	return false
 }
 
 /*
@@ -210,19 +219,6 @@ func getIthVisible(doc *Document, i int) *WCharacter {
 	return nil // no ith visible character
 }*/
 
-func Contains(doc Document, wCharID []int) bool { // TODO
-	/*docChar := doc.WCharDic
-
-	for docChar != nil {
-		if docChar.SiteID == wChar.SiteID && docChar.Clock == wChar.Clock {
-			return true
-		} else {
-			docChar = docChar.NextChar
-		}
-	}
-	return false*/
-	return false
-}
 
 
 type ReplicaService struct {}
@@ -603,4 +599,21 @@ func posTests(doc *Document) {
 	subseq = doc.Subsequence(startChar, char4)
 	subseqString = constructString(subseq)
 	fmt.Printf("Subsequence between start and d: %s\n", subseqString)
+
+	// test contains
+	contains := doc.Contains(char4.ID)
+	fmt.Printf("Contains d: %t\n", contains)
+	contains = doc.Contains(char2.ID)
+	fmt.Printf("Contains b: %t\n", contains)
+
+	replicaClock += 1
+	char5 := WCharacter{
+		ID: []int{replicaID, replicaClock},
+		IsVisible: true, 
+		CharVal: "e",
+		PrevID: []int{startChar.ID[0], startChar.ID[1]},
+		NextID: []int{char2.ID[0], char2.ID[0]} }
+
+	contains = doc.Contains(char5.ID)
+	fmt.Printf("Contains e: %t\n", contains)
 }
