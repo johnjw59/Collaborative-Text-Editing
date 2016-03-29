@@ -98,7 +98,6 @@ var endChar = WCharacter {
 var document Document // placeholder document -> should eventually use the map
 var replicaID int // each replica has a unique id
 var replicaClock int // each replica has a logical clock associated with it
-var replicaType string // can be either "storage" or "client"
 
 // WOOT Methods - three stage process of making changes
 func GenerateIns(pos int, char string) {
