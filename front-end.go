@@ -85,6 +85,7 @@ func ReplicaActivityListener() {
 			_, err := rpc.Dial("tcp", RPCaddress)
 			if err != nil {
 				delete(replicaRPCMap, nodeId)
+				fmt.Println("Removed " + nodeId + " from map of replicas")
 				UpdateReplicas()
 			}
 		}
