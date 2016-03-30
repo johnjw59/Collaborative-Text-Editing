@@ -42,7 +42,7 @@ type ValReply struct {
 
 // Info about other active replicas
 type ActiveReplicas struct {
-	Replicas map[string]string
+	Replicas map[int]string
 }
 
 type StorageArgs struct {
@@ -273,18 +273,20 @@ func (rs *ReplicaService) RetrieveDocument(args *StorageArgs, reply *ValReply) e
 	return nil
 }
 
-var activeReplicasMap map[string]string
+var activeReplicasMap map[int]string
 var documentsMap map[string]string // TODO: change value type to Document
 var upgrader = websocket.Upgrader{} // use default options
 var httpAddress = flag.String("addr", ":8080", "http service address")
 var homeTempl = template.Must(template.ParseFiles("index.html"))
 
+const storageFlag int = -1
+
 // Main server loop.
 func main() {
 	// Parse args.
-	usage := fmt.Sprintf("Usage: %s [replica ip:port] [front-end ip:port] [replica ID] [replica Type ('storage' or 'client')] \n",
+	usage := fmt.Sprintf("Usage: %s [replica ip:port] [front-end ip:port] [optional storage flag, input -1 for storage] \n",
 		os.Args[0])
-	if len(os.Args) != 5 {
+	if len(os.Args) < 3 || len(os.Args) > 4{
 		fmt.Printf(usage)
 		os.Exit(1)
 	}
@@ -292,19 +294,24 @@ func main() {
 	// govector library for vector clock logs
 	// Logger := govec.Initialize("client", "clientlogfile")
 
-	activeReplicasMap = make(map[string]string)
+	activeReplicasMap = make(map[int]string)
 
 	// init operation pool
 	//opPool = make([]*Operation, 0)
-
 	replicaAddrString := os.Args[1]
 	frontEndAddrString := os.Args[2]
-	replicaID, err := strconv.Atoi(os.Args[3])
-	checkError(err)
-	replicaType = os.Args[4]
-	if replicaType != "storage" && replicaType != "client" {
-		fmt.Printf(usage)
-		os.Exit(1)
+	replicaID := GenerateReplicaId()
+	
+	if len(os.Args) == 4 {
+		flag, err := strconv.Atoi(os.Args[3])
+		checkError(err)
+		
+		if flag == storageFlag {
+			replicaID = storageFlag
+		} else {
+			fmt.Sprintf("Usage: third argument must be -1 \n")
+			os.Exit(1)
+		}
 	}
 
 	// initialize clock
@@ -345,7 +352,7 @@ func main() {
 
 
 	// check if this replica is to be used for persistent storage
-	if replicaType == "storage" {
+	if replicaID == storageFlag {
 		documentsMap = make(map[string]string)
 	} else {
 		// Start HTTP server
@@ -428,7 +435,7 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 // Store documents based on document Id by contacting the storage replica
 func StoreDocument(documentId string) {
 	
-	storageIP, ok := activeReplicasMap["storage"]
+	storageIP, ok := activeReplicasMap[storageFlag]
 	if !ok {
 		fmt.Println("Storage replica has not been initialized")
 		return 
@@ -452,7 +459,7 @@ func StoreDocument(documentId string) {
 // Retrieves documents based on document Id by contacting the storage replica
 func RetrieveDocument(documentId string) string {
 	
-	storageIP, ok := activeReplicasMap["storage"]
+	storageIP, ok := activeReplicasMap[storageFlag]
 	if !ok {
 		fmt.Println("Storage replica has not been initialized")
 		return ""
@@ -495,6 +502,13 @@ func CreateDocumentId(strlen int) string {
 		result[i] = chars[rand.Intn(len(chars))]
 	}
 	return string(result)
+}
+
+// Generates a random int
+func GenerateReplicaId() int {
+	seed := rand.NewSource(time.Now().UnixNano())
+    r := rand.New(seed)
+	return r.Intn(1000000)
 }
 
 // If error is non-nil, print it out and halt.

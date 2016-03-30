@@ -17,17 +17,17 @@ type ValReply struct {
 
 // Info about other active replicas
 type ActiveReplicas struct {
-	Replicas map[string]string
+	Replicas map[int]string
 }
 
 // Info about the replica
 type Replica struct {
-	NodeId  string
+	NodeId  int
 	RPCAddr string
 }
 
 // key is the replica id and the value is the replica's RCP IP
-var replicaRPCMap map[string]string
+var replicaRPCMap map[int]string
 
 // Main server loop.
 func main() {
@@ -39,7 +39,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	replicaRPCMap = make(map[string]string)
+	replicaRPCMap = make(map[int]string)
 
 	replicaAddrString := os.Args[1]
 	replicaAddr, err := net.ResolveUDPAddr("udp", replicaAddrString)
@@ -67,7 +67,7 @@ func ReplicaListener(conn *net.UDPConn) {
 		var replica Replica
 		err = json.Unmarshal(buf[:readLength], &replica)
 		if err == nil {
-			fmt.Println("Replica joined: " + replica.NodeId + " @ " + replica.RPCAddr)
+			fmt.Printf("Replica joined: %d @ " + replica.RPCAddr + "\n", replica.NodeId)
 			replicaRPCMap[replica.NodeId] = replica.RPCAddr
 			UpdateReplicas()
 		} else {
@@ -85,7 +85,7 @@ func ReplicaActivityListener() {
 			_, err := rpc.Dial("tcp", RPCaddress)
 			if err != nil {
 				delete(replicaRPCMap, nodeId)
-				fmt.Println("Removed " + nodeId + " from map of replicas")
+				fmt.Printf("Replica removed: %d from map of replicas \n", nodeId)
 				UpdateReplicas()
 			}
 		}
