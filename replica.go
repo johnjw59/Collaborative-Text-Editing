@@ -24,15 +24,6 @@ type WCharacter struct {
 	nextChar  *WCharacter
 }
 
-// args in WriteToDoc(args)
-type WriteArgs struct {
-	newString string // new string for document contents
-}
-
-// args in ReadFromDoc(args)
-type ReadArgs struct {
-}
-
 // Reply from service for all API calls
 type ValReply struct {
 	Val string // value; depends on the call
@@ -65,10 +56,12 @@ var ws *websocket.Conn
 
 // struct to represent operations
 type Operation struct {
-	OpChar *W-Character
+	OpChar W-Character
 	OpType string
 }
-// TODO: Create pool of operations
+
+// pool of operations
+var opPool []Operation
 
 // struct to represent a document
 type Document struct {
@@ -121,10 +114,6 @@ func isExecutable(op *Operation) {
 	}
 }
 
-func receiveOperation(op *Operation) {
-	// TODO: add op to pool
-}
-
 func IntegrateDel(wChar *W-Character) {
 	wChar.IsVisible = false
 }
@@ -166,30 +155,31 @@ func Contains(doc *Document, wChar *W-Character) boolean { // TODO
 	return false
 }
 
-type ReplicaService struct {}
+func BroadcastOperation(op *Operation) {
 
-// Write to Doc
-func (rs *ReplicaService) WriteToDoc(args *WriteArgs, reply *ValReply) error {
-	// Acquire mutex for exclusive access to kvmap.
-	//documentContents.Lock()
-	// Defer mutex unlock to (any) function exit.
-	//defer documentContents.Unlock()
+	for replica := range activeReplicasMap {
+		r, err := rpc.Dial("tcp", activeReplicasMap[replica])
+		checkError(err)
 
-	documentContents = args.newString
-	reply.Val = ""
-	fmt.Println("Performing Write")
-	return nil
+		var result ValReply
+
+		err = r.Call("ReplicaService.ReceiveOperation", op, &result)
+		checkError(err)
+		// TODO: Do something with reply?
+	}
 }
 
-// Read from Doc
-func (rs *ReplicaService) ReadFromDoc(args *ReadArgs, reply *ValReply) error {
-	// Acquire mutex for exclusive access to kvmap.
-	//documentContents.Lock()
-	// Defer mutex unlock to (any) function exit.
-	//defer documentContents.Unlock()
+type ReplicaService struct {}
 
-	reply.Val = documentContents // execute the get
-	fmt.Println("Performing Read")
+// receive operation from remote replica and add to local op pool
+func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValReply) error {
+	fmt.Println("Receiving op: " + op.OpType)
+
+	newOp = Operation{receivedOp.OpChar, receivedOp.OpType}
+	opPool = append(opPool, newOp)
+
+	reply.Val = ""
+
 	return nil
 }
 
@@ -232,6 +222,7 @@ func main() {
 	// Logger := govec.Initialize("client", "clientlogfile")
 
 	activeReplicasMap = make(map[string]string)
+	opPool = make([]Operation, 16)
 
 	replicaAddrString := os.Args[1]
 	frontEndAddrString := os.Args[2]
