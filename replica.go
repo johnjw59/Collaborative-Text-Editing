@@ -89,149 +89,15 @@ var endChar = WCharacter {
 var document Document // placeholder document -> should eventually use the map
 var replicaID int // each replica has a unique id
 var replicaClock int // each replica has a logical clock associated with it
+var activeReplicasMap map[int]string
+var documentsMap map[string]string // TODO: change value type to Document
+var upgrader = websocket.Upgrader{} // use default options
+var httpAddress = flag.String("addr", ":8080", "http service address")
+var homeTempl = template.Must(template.ParseFiles("index.html"))
 
-// WOOT Methods - three stage process of making changes
-func GenerateIns(pos int, char string) {
-	// need to increment clock
-	/*replicaClock += 1
-
-	cPrev := getIthVisible(document, pos) // TODO: change document arg
-	cNext := getIthVisible(document, pos + 1)
-
-	if cPrev == nil || cNext == nil {
-		fmt.Println("Failed to get next and prev")
-		return
-	}
-
-	wChar := new(WCharacter)
-	wChar.SiteID = replicaID
-	wChar.Clock = replicaClock
-	wChar.IsVisible = true
-	wChar.CharVal = char
-	wChar.PrevID = cPrev
-	wChar.NextID = cNext
-
-	IntegrateIns(wChar, cPrev, cNext)
-	// TODO: broadcast ins(wchar)*/
-}
-
-func GenerateDel(pos int) {
-	//wChar := getIthVisible(document, pos) // TODO: change document arg
-
-	//IntegrateDel(wChar)
-	// TODO: broadcast del(wchar)
-}
-
-// check preconditions of operation
-func IsExecutable(op *Operation) bool {
-	wChar := op.OpChar
-
-	if op.OpType == "del" {
-		return document.Contains(wChar.ID) // TODO: change document arg
-	} else {
-		return document.Contains(wChar.PrevID) && document.Contains(wChar.NextID) // TODO: change document arg
-	}
-}
-
-func IntegrateDel(wChar *WCharacter) {
-	wChar.IsVisible = false
-}
-
-func IntegrateIns(wChar *WCharacter, cPrev *WCharacter, cNext *WCharacter) {
-	// TODO
-}
-
-// get the position of WCharacter in document's ordered WString
-func (doc *Document) Pos(toFind WCharacter) int {
-	for i, char := range doc.WString {
-		if char.ID[0] == toFind.ID[0] && char.ID[1] == toFind.ID[1] {
-			return i
-		}
-	}
-	return -1 // toFind not in document
-}
-
-// insert WCharacter into doc's WString at position p as well as into WCharDic
-func (doc *Document) Insert(char WCharacter, p int) {
-	temp := WCharacter{}
-	doc.WString = append(doc.WString, temp)
-	copy(doc.WString[p+1:], doc.WString[p:])
-	doc.WString[p] = char
-
-	// also add to WCharDic
-	doc.WCharDic[strconv.Itoa(char.ID[0]) + "-" + strconv.Itoa(char.ID[1])] = char	
-}
-
-// get subsequence of wstring between prevchar and nextchar
-func (doc *Document) Subsequence(prevChar WCharacter, nextChar WCharacter) []WCharacter {
-	subseq := make([]WCharacter, 0)
-	startPos := doc.Pos(prevChar)
-	endPos := doc.Pos(nextChar)
-
-	for endPos >= (startPos + 2) {
-		startPos += 1
-		subseq = append(subseq, doc.WString[startPos])
-	}
-	return subseq
-}
-
-// check if document contains a wChar
-func (doc *Document) Contains(wCharID []int) bool {
-	for _, docChar := range doc.WString {
-		if wCharID[0] == docChar.ID[0] && wCharID[1] == docChar.ID[1] {
-			return true
-		} 
-	}
-	return false
-}
-
-
-// return the ith visible character in a string of WCharacters
-func (doc *Document) getIthVisible(i int) *WCharacter {
-	index := 0
-
-	for _, wChar := range doc.WString { // TODO: check termination conditions
-		if index == i && wChar.IsVisible { // found ith visible
-			return &wChar
-		} else if wChar.IsVisible{ // current character is not visible, don't increment index
-			index += 1
-		} 
-	}
-	return nil // no ith visible character
-}
-
-func BroadcastOperation(op *Operation) {
-	for replica := range activeReplicasMap {
-		r, err := rpc.Dial("tcp", activeReplicasMap[replica])
-		checkError(err)
-
-		var result ValReply
-
-		err = r.Call("ReplicaService.ReceiveOperation", op, &result)
-		checkError(err)
-		// TODO: Do something with reply?
-	}
-}
-
-/*
-// this function is where broadcasted operations are handled
-func ReceiveOperation(op *Operation) {
-	document.opPool = append(document.opPool, op)
-}*/
+const storageFlag int = -1
 
 type ReplicaService struct {}
-
-// receive operation from remote replica and add to local op pool
-func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValReply) error {
-	fmt.Println("Receiving op: " + receivedOp.OpType)
-
-	//newOp := Operation{receivedOp.OpChar, receivedOp.OpType}
-	//document.opPool = append(document.opPool, newOp)
-	document.opPool = append(document.opPool, receivedOp)
-
-	reply.Val = ""
-	return nil
-}
 
 // Set local map of active nodes
 func (rs *ReplicaService) SetActiveNodes(args *ActiveReplicas, reply *ValReply) error {
@@ -268,13 +134,6 @@ func (rs *ReplicaService) RetrieveDocument(args *StorageArgs, reply *ValReply) e
 	return nil
 }
 
-var activeReplicasMap map[int]string
-var documentsMap map[string]string // TODO: change value type to Document
-var upgrader = websocket.Upgrader{} // use default options
-var httpAddress = flag.String("addr", ":8080", "http service address")
-var homeTempl = template.Must(template.ParseFiles("index.html"))
-
-const storageFlag int = -1
 
 // Main server loop.
 func main() {
@@ -418,9 +277,9 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 				document := RetrieveDocument(cmd.Val) 
 				ws.WriteMessage(websocket.TextMessage, []byte(document))
 			case "ins":
-				GenerateIns(cmd.Pos, cmd.Val)
+				// GenerateIns(cmd.Pos, cmd.Val) // TODO: Needs to be called on a specific document in map
 			case "del":
-				GenerateDel(cmd.Pos)
+				//GenerateDel(cmd.Pos)
 		}
 	}
 
@@ -476,18 +335,6 @@ func RetrieveDocument(documentId string) string {
 	return result.Val
 }
 
-// construct string from a document
-func constructString(wString []WCharacter) string {
-	contents_str := ""
-
-	for _,wchar := range wString {
-		if wchar.IsVisible {
-			contents_str += wchar.CharVal
-		}
-	}
-	return contents_str
-}
-
 // Returns a random string of size strlen
 func CreateDocumentId(strlen int) string {
 	rand.Seed(time.Now().UTC().UnixNano())
@@ -505,6 +352,204 @@ func GenerateReplicaId() int {
     r := rand.New(seed)
 	return r.Intn(1000000)
 }
+
+
+
+// WOOT Methods - three stage process of making changes
+func (doc *Document) GenerateIns(pos int, char string) {
+	// need to increment clock
+	replicaClock += 1
+
+	cPrev := doc.getIthVisible(pos)
+	cNext := doc.getIthVisible(pos + 1)
+
+	if cPrev == nil || cNext == nil {
+		fmt.Println("Failed to get next or prev")
+		return
+	}
+
+	newWChar := WCharacter{
+		ID: []int{replicaID, replicaClock},
+		IsVisible: true, 
+		CharVal: char,
+		PrevID: cPrev.ID,
+		NextID: cNext.ID }
+
+	doc.IntegrateIns(&newWChar, cPrev, cNext)
+	// TODO: broadcast ins(wchar)
+}
+
+func (doc *Document) GenerateDel(pos int) {
+	wChar := doc.getIthVisible(pos)
+
+	IntegrateDel(wChar)
+	// TODO: broadcast del(wchar)
+}
+
+// check preconditions of operation
+func (doc *Document) IsExecutable(op *Operation) bool {
+	wChar := op.OpChar
+
+	if op.OpType == "del" {
+		return doc.Contains(wChar.ID)
+	} else if op.OpType == "ins" {
+		return doc.Contains(wChar.PrevID) && doc.Contains(wChar.NextID)
+	} else {
+		fmt.Println("Invalid operation type")
+		os.Exit(1)
+		return false
+	}
+}
+
+func IntegrateDel(wChar *WCharacter) {
+	wChar.IsVisible = false
+}
+
+func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *WCharacter) {
+	// get all WCharacters in between cPrev and cNext
+	subseqS := doc.Subsequence(*cPrev, *cNext)
+	subseqString := constructString(subseqS)
+	fmt.Printf("Subsequence between cPrev and cNext: %s\n", subseqString)
+
+	// if no WCharacters in between, we're done - can insert wChar at desired position
+	if len(subseqS) == 0 {
+		doc.Insert(*cChar, doc.Pos(*cNext))
+	} else {
+		L := make([]WCharacter, 0)
+		L = append(L, *cPrev)
+		cPrevPos := doc.Pos(*cPrev)
+		cNextPos := doc.Pos(*cNext)
+
+		// find all characters
+		for _, wChar := range subseqS {
+			prev := doc.Pos(doc.WCharDic[strconv.Itoa(wChar.PrevID[0]) + "-" + strconv.Itoa(wChar.PrevID[1])])
+			next := doc.Pos(doc.WCharDic[strconv.Itoa(wChar.NextID[0]) + "-" + strconv.Itoa(wChar.NextID[1])])
+			if prev <= cPrevPos && next >= cNextPos {
+		  		L = append(L, wChar)
+			}
+		  }
+		L = append(L, *cNext)
+
+		// determine order based on ID
+     	i := 1
+     	for i < (len(L) - 1) && CompareID(L[i].ID, cChar.ID) {
+     		i += 1
+     	}
+     	// make recursive call using updated prev/next WChars
+     	doc.IntegrateIns(cChar, &L[i-1], &L[i])
+	}
+}
+
+func BroadcastOperation(op *Operation) {
+	for replica := range activeReplicasMap {
+		r, err := rpc.Dial("tcp", activeReplicasMap[replica])
+		checkError(err)
+
+		var result ValReply
+
+		err = r.Call("ReplicaService.ReceiveOperation", op, &result)
+		checkError(err)
+		// TODO: Do something with reply?
+	}
+}
+
+// receive operation from remote replica and add to local op pool
+func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValReply) error {
+	fmt.Println("Receiving op: " + receivedOp.OpType)
+
+	newOp := Operation{receivedOp.OpChar, receivedOp.OpType}
+	document.opPool = append(document.opPool, &newOp)
+	//document.opPool = append(document.opPool, receivedOp)
+
+	reply.Val = ""
+	return nil
+}
+
+
+// WOOT Helper Methods
+
+// construct string from a document
+func constructString(wString []WCharacter) string {
+	contents_str := ""
+
+	for _,wchar := range wString {
+		if wchar.IsVisible {
+			contents_str += wchar.CharVal
+		}
+	}
+	return contents_str
+}
+
+// get the position of WCharacter in document's ordered WString
+func (doc *Document) Pos(toFind WCharacter) int {
+	for i, char := range doc.WString {
+		if char.ID[0] == toFind.ID[0] && char.ID[1] == toFind.ID[1] {
+			return i
+		}
+	}
+	return -1 // toFind not in document
+}
+
+// insert WCharacter into doc's WString at position p as well as into WCharDic
+func (doc *Document) Insert(char WCharacter, p int) {
+	temp := WCharacter{}
+	doc.WString = append(doc.WString, temp)
+	copy(doc.WString[p+1:], doc.WString[p:])
+	doc.WString[p] = char
+
+	// also add to WCharDic
+	doc.WCharDic[strconv.Itoa(char.ID[0]) + "-" + strconv.Itoa(char.ID[1])] = char	
+}
+
+// get subsequence of wstring between prevchar and nextchar
+func (doc *Document) Subsequence(prevChar WCharacter, nextChar WCharacter) []WCharacter {
+	subseq := make([]WCharacter, 0)
+	startPos := doc.Pos(prevChar)
+	endPos := doc.Pos(nextChar)
+
+	for endPos >= (startPos + 2) {
+		startPos += 1
+		subseq = append(subseq, doc.WString[startPos])
+	}
+	return subseq
+}
+
+// check if document contains a wChar
+func (doc *Document) Contains(wCharID []int) bool {
+	for _, docChar := range doc.WString {
+		if wCharID[0] == docChar.ID[0] && wCharID[1] == docChar.ID[1] {
+			return true
+		} 
+	}
+	return false
+}
+
+
+// return the ith visible character in a string of WCharacters
+func (doc *Document) getIthVisible(i int) *WCharacter {
+	index := 0
+
+	for _, wChar := range doc.WString { // TODO: check termination conditions
+		if index == i && wChar.IsVisible { // found ith visible
+			return &wChar
+		} else if wChar.IsVisible{ // current character is not visible, don't increment index
+			index += 1
+		} 
+	}
+	return nil // no ith visible character
+}
+
+// returns boolean representing whether ID1 < ID2
+func CompareID(ID1 []int, ID2 []int) bool {
+	if ID1[0] < ID2[0] {
+		return true
+	} else if ID1[0] == ID2[0] {
+		return ID1[1] < ID2[1]
+	} else {
+		return false
+	}
+}
+
 
 // If error is non-nil, print it out and halt.
 func checkError(err error) {
