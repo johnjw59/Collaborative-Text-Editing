@@ -58,7 +58,7 @@ var ws *websocket.Conn
 
 // struct to represent operations
 type Operation struct {
-	OpChar *W-Character
+	OpChar *WCharacter
 	OpType string
 }
 
@@ -185,24 +185,20 @@ func (doc *Document) Contains(wCharID []int) bool {
 	return false
 }
 
-/*
-// return the ith visible character in a string of WCharacters
-func getIthVisible(doc *Document, i int) *WCharacter {
-	index := 0
-	wChar := doc.WCharDic
 
-	for wChar != nil { // TODO: check termination conditions
+// return the ith visible character in a string of WCharacters
+func (doc *Document) getIthVisible(i int) *WCharacter {
+	index := 0
+
+	for _, wChar := range doc.WString { // TODO: check termination conditions
 		if index == i && wChar.IsVisible { // found ith visible
-			return wChar
-		} else if !wChar.IsVisible{ // current character is not visible, don't increment index
-			wChar = wChar.NextChar
-		} else { // current character is not ith but is visible
-			wChar = wChar.NextChar
+			return &wChar
+		} else if wChar.IsVisible{ // current character is not visible, don't increment index
 			index += 1
-		}
+		} 
 	}
 	return nil // no ith visible character
-}*/
+}
 
 func BroadcastOperation(op *Operation) {
 	for replica := range activeReplicasMap {
@@ -227,10 +223,11 @@ type ReplicaService struct {}
 
 // receive operation from remote replica and add to local op pool
 func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValReply) error {
-	fmt.Println("Receiving op: " + op.OpType)
+	fmt.Println("Receiving op: " + receivedOp.OpType)
 
-	newOp = Operation{receivedOp.OpChar, receivedOp.OpType}
-	document.opPool = append(document.opPool, newOp)
+	//newOp := Operation{receivedOp.OpChar, receivedOp.OpType}
+	//document.opPool = append(document.opPool, newOp)
+	document.opPool = append(document.opPool, receivedOp)
 
 	reply.Val = ""
 	return nil
@@ -620,11 +617,37 @@ func posTests(doc *Document) {
 	replicaClock += 1
 	char5 := WCharacter{
 		ID: []int{replicaID, replicaClock},
-		IsVisible: true, 
+		IsVisible: false, 
 		CharVal: "e",
 		PrevID: []int{startChar.ID[0], startChar.ID[1]},
 		NextID: []int{char2.ID[0], char2.ID[0]} }
 
 	contains = doc.Contains(char5.ID)
 	fmt.Printf("Contains e: %t\n", contains)
+
+
+	// test getIthVisible
+	fmt.Println("Inserting invisible e at position 2")
+	doc.Insert(char5, 2)
+	docString = constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
+
+	ithVisChar := doc.getIthVisible(1)
+	fmt.Printf("Get 1st visible: %s\n", ithVisChar.CharVal)
+	ithVisChar = doc.getIthVisible(2)
+	fmt.Printf("Get 2nd visible: %s\n", ithVisChar.CharVal)
+	ithVisChar = doc.getIthVisible(3)
+	fmt.Printf("Get 3rd visible: %s\n", ithVisChar.CharVal)
+
+	fmt.Printf("Setting %s to invisible\n", doc.WString[1].CharVal)
+	doc.WString[1].IsVisible = false
+	docString = constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
+
+	ithVisChar = doc.getIthVisible(1)
+	fmt.Printf("Get 1st visible: %s\n", ithVisChar.CharVal)
+	ithVisChar = doc.getIthVisible(2)
+	fmt.Printf("Get 2nd visible: %s\n", ithVisChar.CharVal)
+
+
 }
