@@ -277,9 +277,10 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 				document := RetrieveDocument(cmd.Val) 
 				ws.WriteMessage(websocket.TextMessage, []byte(document))
 			case "ins":
-				// GenerateIns(cmd.Pos, cmd.Val) // TODO: Needs to be called on a specific document in map
+				document.GenerateIns(cmd.Pos, cmd.Val) // TODO: Needs to be called on a specific document 
+												 // (single doc variable for non storage replicas?)
 			case "del":
-				//GenerateDel(cmd.Pos)
+				document.GenerateDel(cmd.Pos)
 		}
 	}
 
@@ -460,6 +461,21 @@ func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValRepl
 	newOp := Operation{receivedOp.OpChar, receivedOp.OpType}
 	document.opPool = append(document.opPool, &newOp)
 	//document.opPool = append(document.opPool, receivedOp)
+
+	// loop through opPool here
+	for _, op := range document.opPool {
+		opType := op.OpType
+		opChar := op.OpChar
+		if document.IsExecutable(op) {
+			if opType == "del" {
+				IntegrateDel(opChar) // seems like this should be specific to a document...?
+			} else if opType == "ins" {
+				prevChar := document.WCharDic[strconv.Itoa(opChar.PrevID[0]) + "-" + strconv.Itoa(opChar.PrevID[1])]
+				nextChar := document.WCharDic[strconv.Itoa(opChar.NextID[0]) + "-" + strconv.Itoa(opChar.NextID[1])]
+				document.IntegrateIns(opChar, &prevChar, &nextChar)
+			}
+		}
+	}
 
 	reply.Val = ""
 	return nil
