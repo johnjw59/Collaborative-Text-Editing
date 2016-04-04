@@ -201,8 +201,8 @@ func main() {
 		opPool: []*Operation{} }
 
 	// add special chars to WCharDic
-	document.WCharDic[strconv.Itoa(startChar.ID[0]) + "-" + strconv.Itoa(startChar.ID[1])] = startChar
-	document.WCharDic[strconv.Itoa(endChar.ID[0]) + "-" + strconv.Itoa(endChar.ID[1])] = endChar
+	document.WCharDic[ConstructKeyFromID(startChar.ID)] = startChar
+	document.WCharDic[ConstructKeyFromID(endChar.ID)] = endChar
 
 
 	// check if this replica is to be used for persistent storage
@@ -274,8 +274,9 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 				StoreDocument(documentId)
 				ws.WriteMessage(websocket.TextMessage, []byte(documentId))
 			case "retrieve":
-				document := RetrieveDocument(cmd.Val) 
-				ws.WriteMessage(websocket.TextMessage, []byte(document))
+				//document := RetrieveDocument(cmd.Val)
+				ws.WriteMessage(websocket.TextMessage, []byte(""))
+				//ws.WriteMessage(websocket.TextMessage, []byte(document))
 			case "ins":
 				document.GenerateIns(cmd.Pos, cmd.Val) // TODO: Needs to be called on a specific document 
 												 // (single doc variable for non storage replicas?)
@@ -403,14 +404,13 @@ func (doc *Document) IsExecutable(op *Operation) bool {
 }
 
 func IntegrateDel(wChar *WCharacter) {
+	//charToDel := 
 	wChar.IsVisible = false
 }
 
 func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *WCharacter) {
 	// get all WCharacters in between cPrev and cNext
 	subseqS := doc.Subsequence(*cPrev, *cNext)
-	subseqString := constructString(subseqS)
-	fmt.Printf("Subsequence between cPrev and cNext: %s\n", subseqString)
 
 	// if no WCharacters in between, we're done - can insert wChar at desired position
 	if len(subseqS) == 0 {
@@ -421,10 +421,14 @@ func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *W
 		cPrevPos := doc.Pos(*cPrev)
 		cNextPos := doc.Pos(*cNext)
 
+		for _, entry := range doc.WCharDic {
+			fmt.Println(entry)
+		}
+
 		// find all characters
 		for _, wChar := range subseqS {
-			prev := doc.Pos(doc.WCharDic[strconv.Itoa(wChar.PrevID[0]) + "-" + strconv.Itoa(wChar.PrevID[1])])
-			next := doc.Pos(doc.WCharDic[strconv.Itoa(wChar.NextID[0]) + "-" + strconv.Itoa(wChar.NextID[1])])
+			prev := doc.Pos(document.WCharDic[ConstructKeyFromID(wChar.PrevID)])
+			next := doc.Pos(document.WCharDic[ConstructKeyFromID(wChar.NextID)])
 			if prev <= cPrevPos && next >= cNextPos {
 		  		L = append(L, wChar)
 			}
@@ -470,8 +474,8 @@ func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValRepl
 			if opType == "del" {
 				IntegrateDel(opChar) // seems like this should be specific to a document...?
 			} else if opType == "ins" {
-				prevChar := document.WCharDic[strconv.Itoa(opChar.PrevID[0]) + "-" + strconv.Itoa(opChar.PrevID[1])]
-				nextChar := document.WCharDic[strconv.Itoa(opChar.NextID[0]) + "-" + strconv.Itoa(opChar.NextID[1])]
+				prevChar := document.WCharDic[ConstructKeyFromID(opChar.PrevID)]
+				nextChar := document.WCharDic[ConstructKeyFromID(opChar.NextID)]
 				document.IntegrateIns(opChar, &prevChar, &nextChar)
 			}
 		}
@@ -514,7 +518,10 @@ func (doc *Document) Insert(char WCharacter, p int) {
 	doc.WString[p] = char
 
 	// also add to WCharDic
-	doc.WCharDic[strconv.Itoa(char.ID[0]) + "-" + strconv.Itoa(char.ID[1])] = char	
+	doc.WCharDic[ConstructKeyFromID(char.PrevID)] = char	
+
+	docString := constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
 }
 
 // get subsequence of wstring between prevchar and nextchar
@@ -566,6 +573,10 @@ func CompareID(ID1 []int, ID2 []int) bool {
 	}
 }
 
+func ConstructKeyFromID(ID []int) string {
+	return (strconv.Itoa(ID[0]) + "-" + strconv.Itoa(ID[1]))
+}
+
 
 // If error is non-nil, print it out and halt.
 func checkError(err error) {
@@ -589,10 +600,23 @@ func runTests() {
 		opPool: []*Operation{} }
 
 	// add special chars to WCharDic
-	testDoc.WCharDic[strconv.Itoa(startChar.ID[0]) + "-" + strconv.Itoa(startChar.ID[1])] = startChar
-	testDoc.WCharDic[strconv.Itoa(endChar.ID[0]) + "-" + strconv.Itoa(endChar.ID[1])] = endChar
+	testDoc.WCharDic[ConstructKeyFromID(startChar.ID)] = startChar
+	testDoc.WCharDic[ConstructKeyFromID(endChar.ID)] = endChar
 
-	posTests(&testDoc)
+	//posTests(&testDoc)
+
+	// reset testDoc
+	testDoc = Document {
+		DocName: "testDoc",
+		WString: []WCharacter{startChar, endChar}, // intialize to empty, only special chars exist
+		WCharDic: make(map[string]WCharacter), 
+		opPool: []*Operation{} }
+
+	// add special chars to WCharDic
+	testDoc.WCharDic[ConstructKeyFromID(startChar.ID)] = startChar
+	testDoc.WCharDic[ConstructKeyFromID(endChar.ID)] = endChar
+
+	IntegrateTests(&testDoc)
 }
 
 func posTests(doc *Document) {
@@ -604,7 +628,7 @@ func posTests(doc *Document) {
 		IsVisible: true, 
 		CharVal: "a",
 		PrevID: []int{startChar.ID[0], startChar.ID[1]},
-		NextID: nil }
+		NextID: []int{endChar.ID[0], endChar.ID[1]} }
 
 	replicaClock += 1
 	char2 := WCharacter{
@@ -612,7 +636,7 @@ func posTests(doc *Document) {
 		IsVisible: true, 
 		CharVal: "b",
 		PrevID: []int{char1.ID[0], char1.ID[1]},
-		NextID: nil }
+		NextID: []int{endChar.ID[0], endChar.ID[1]} }
 
 	replicaClock += 1
 	char3 := WCharacter{
@@ -620,7 +644,7 @@ func posTests(doc *Document) {
 		IsVisible: true, 
 		CharVal: "c",
 		PrevID: []int{startChar.ID[0], startChar.ID[1]},
-		NextID: nil }
+		NextID: []int{endChar.ID[0], endChar.ID[1]} }
 
 	doc.WString = []WCharacter{startChar, char1, char2, endChar}
 	posChar1 := doc.Pos(char1)
@@ -709,6 +733,55 @@ func posTests(doc *Document) {
 	fmt.Printf("Get 1st visible: %s\n", ithVisChar.CharVal)
 	ithVisChar = doc.getIthVisible(2)
 	fmt.Printf("Get 2nd visible: %s\n", ithVisChar.CharVal)
+}
+
+func IntegrateTests(doc *Document) {
+	for _, entry := range doc.WCharDic {
+		fmt.Println(entry)
+	}
+
+	replicaClock += 1
+	char1 := WCharacter{
+		ID: []int{replicaID, replicaClock},
+		IsVisible: true, 
+		CharVal: "a",
+		PrevID: []int{startChar.ID[0], startChar.ID[1]},
+		NextID: []int{endChar.ID[0], endChar.ID[1]} }
+
+	fmt.Println("IntegrateInsert for a between start and end")
+	doc.IntegrateIns(&char1, &startChar, &endChar)
+	docString := constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
 
 
+	replicaClock += 1
+	char2 := WCharacter{
+		ID: []int{replicaID, replicaClock},
+		IsVisible: true, 
+		CharVal: "b",
+		PrevID: []int{char1.ID[0], char1.ID[1]},
+		NextID: []int{endChar.ID[0], endChar.ID[1]} }
+
+	fmt.Println("IntegrateInsert for b between start and end")
+	doc.IntegrateIns(&char2, &startChar, &endChar)
+	docString = constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
+
+	replicaClock += 1
+	char3 := WCharacter{
+		ID: []int{replicaID, replicaClock},
+		IsVisible: true, 
+		CharVal: "c",
+		PrevID: []int{startChar.ID[0], startChar.ID[1]},
+		NextID: []int{endChar.ID[0], endChar.ID[1]} }
+
+	fmt.Println("IntegrateInsert for c between start and b")
+	doc.IntegrateIns(&char3, &startChar, &char2)
+	docString = constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
+
+	fmt.Println("IntegrateDel for b")
+	IntegrateDel(&char2)
+	docString = constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
 }
