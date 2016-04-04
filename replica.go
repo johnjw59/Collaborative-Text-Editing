@@ -40,6 +40,10 @@ type StorageArgs struct {
 	DocumentId string
 }
 
+type StorageReply struct {
+	StoredDocument *Document
+}
+
 // Info about the replica
 type Replica struct {
 	NodeId  int
@@ -60,6 +64,7 @@ var ws *websocket.Conn
 type Operation struct {
 	OpChar *WCharacter
 	OpType string
+	DocumentId string
 }
 
 // struct to represent a document
@@ -86,11 +91,11 @@ var endChar = WCharacter {
 	PrevID: []int{0,0},
 	NextID: nil }
 
-var document Document // placeholder document -> should eventually use the map
+var document *Document // current document being edited
 var replicaID int // each replica has a unique id
 var replicaClock int // each replica has a logical clock associated with it
 var activeReplicasMap map[int]string
-var documentsMap map[string]string // TODO: change value type to Document
+var documentsMap map[string]*Document // map to store different documents (used by the storage replica)
 var upgrader = websocket.Upgrader{} // use default options
 var httpAddress = flag.String("addr", ":8080", "http service address")
 var homeTempl = template.Must(template.ParseFiles("index.html"))
@@ -110,23 +115,31 @@ func (rs *ReplicaService) SetActiveNodes(args *ActiveReplicas, reply *ValReply) 
 // Stores a document based on a document id. Used for the persistent document storage
 // ** Note that this function currently just initializes the key in the storage replica's
 // document map and does not save any actual document data
-func (rs *ReplicaService) StoreDocument(args *StorageArgs, reply *ValReply) error {
+func (rs *ReplicaService) InitDocument(args *StorageArgs, reply *StorageReply) error {
 	documentId := args.DocumentId
-	documentsMap[documentId] = "some test value"
+	newDocument := Document {
+		DocName: documentId,
+		WString: []*WCharacter{&startChar, &endChar}, // intialize to empty, only special chars exist
+		WCharDic: make(map[string]WCharacter), 
+		opPool: []*Operation{} }
+	
+	newDocument.WCharDic[ConstructKeyFromID(startChar.ID)] = startChar
+	newDocument.WCharDic[ConstructKeyFromID(endChar.ID)] = endChar	
+	documentsMap[documentId] = &newDocument
 	fmt.Println("Stored document: " + documentId)
-	reply.Val = "success"
+	reply.StoredDocument = documentsMap[documentId]
 	return nil
 }
 
 // Retrieves a document based on a document id. Used for the persistent document storage
 // TODO: return a Document object
-func (rs *ReplicaService) RetrieveDocument(args *StorageArgs, reply *ValReply) error {
+func (rs *ReplicaService) RetrieveDocument(args *StorageArgs, reply *StorageReply) error {
 	documentId := args.DocumentId
 	document, ok := documentsMap[documentId]
 	
 	if ok {
 		fmt.Println("Retrieved document: " + documentId)
-		reply.Val = document
+		reply.StoredDocument = document
 	} else {
 		fmt.Println("Document " + documentId + " does not exist")
 	}
@@ -192,9 +205,9 @@ func main() {
 		fmt.Println("Error on write: ", err)
 	}
 
-	// Initialize contents
+/* 	// Initialize contents
 	// documentContents = ""
-	document = Document {
+	document = &Document {
 		DocName: "testDoc",
 		WString: []*WCharacter{&startChar, &endChar}, // intialize to empty, only special chars exist
 		WCharDic: make(map[string]WCharacter), 
@@ -202,12 +215,11 @@ func main() {
 
 	// add special chars to WCharDic
 	document.WCharDic[ConstructKeyFromID(startChar.ID)] = startChar
-	document.WCharDic[ConstructKeyFromID(endChar.ID)] = endChar
-
-
+	document.WCharDic[ConstructKeyFromID(endChar.ID)] = endChar */
+	
 	// check if this replica is to be used for persistent storage
 	if replicaID == storageFlag {
-		documentsMap = make(map[string]string)
+		documentsMap = make(map[string]*Document)
 	} else {
 		// Start HTTP server
 		flag.Parse()
@@ -220,7 +232,7 @@ func main() {
 	}
 
 	// testing
-	runTests()
+	//runTests()
 
 	// handle RPC calls from other Replicas
 	rpc.Register(&ReplicaService{})
@@ -271,15 +283,13 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 		switch cmd.Op {
 			case "init":
 				documentId := CreateDocumentId(9)
-				StoreDocument(documentId)
+				document = InitDocument(documentId)
 				ws.WriteMessage(websocket.TextMessage, []byte(documentId))
 			case "retrieve":
-				//document := RetrieveDocument(cmd.Val)
-				ws.WriteMessage(websocket.TextMessage, []byte(""))
-				//ws.WriteMessage(websocket.TextMessage, []byte(document))
+				document = RetrieveDocument(cmd.Val)
+				ws.WriteMessage(websocket.TextMessage, []byte(constructString(document.WString)))
 			case "ins":
-				document.GenerateIns(cmd.Pos, cmd.Val) // TODO: Needs to be called on a specific document 
-												 // (single doc variable for non storage replicas?)
+				document.GenerateIns(cmd.Pos, cmd.Val)  
 			case "del":
 				document.GenerateDel(cmd.Pos)
 		}
@@ -288,37 +298,39 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 	ws.Close()
 }
 
-// Store documents based on document Id by contacting the storage replica
-func StoreDocument(documentId string) {
+// Initialize documents with a document Id by contacting the storage replica
+func InitDocument(documentId string) *Document {
 	
 	storageIP, ok := activeReplicasMap[storageFlag]
 	if !ok {
 		fmt.Println("Storage replica has not been initialized")
-		return 
+		return nil
 	}
 
 	r, err := rpc.Dial("tcp", storageIP)
 	if err != nil {
 		log.Fatalf("Cannot reach Storage Replica %s\n%s", "storage", err)
-		return
+		return nil
 	}
 
 	args := &StorageArgs{documentId}
-	var result ValReply
+	var result StorageReply
 
-	err = r.Call("ReplicaService.StoreDocument", args, &result)
+	err = r.Call("ReplicaService.InitDocument", args, &result)
 	if err != nil {
 		log.Fatalf("Error retrieving document", "storage", err)
-	}	
+	}
+
+	return result.StoredDocument
 }
 
 // Retrieves documents based on document Id by contacting the storage replica
-func RetrieveDocument(documentId string) string {
+func RetrieveDocument(documentId string) *Document {
 	
 	storageIP, ok := activeReplicasMap[storageFlag]
 	if !ok {
 		fmt.Println("Storage replica has not been initialized")
-		return ""
+		return nil
 	}
 
 	r, err := rpc.Dial("tcp", storageIP)
@@ -327,14 +339,14 @@ func RetrieveDocument(documentId string) string {
 	}
 
 	args := &StorageArgs{documentId}
-	var result ValReply
+	var result StorageReply
 
 	err = r.Call("ReplicaService.RetrieveDocument", args, &result)
 	if err != nil {
 		log.Fatalf("Error retrieving document", "storage", err)
 	}
 	
-	return result.Val
+	return result.StoredDocument
 }
 
 // Returns a random string of size strlen
@@ -378,7 +390,12 @@ func (doc *Document) GenerateIns(pos int, char string) {
 		NextID: cNext.ID }
 
 	doc.IntegrateIns(&newWChar, cPrev, cNext)
-	// TODO: broadcast ins(wchar)
+	
+	/* operation := Operation{
+		OpChar: &newWChar,
+		OpType: "ins",
+		DocumentId: doc.DocName}
+	BroadcastOperation(&operation) */
 }
 
 func (doc *Document) GenerateDel(pos int) {
@@ -449,14 +466,16 @@ func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *W
 
 func BroadcastOperation(op *Operation) {
 	for replica := range activeReplicasMap {
-		r, err := rpc.Dial("tcp", activeReplicasMap[replica])
-		checkError(err)
+		if replica != replicaID {
+			r, err := rpc.Dial("tcp", activeReplicasMap[replica])
+			checkError(err)
 
-		var result ValReply
+			var result ValReply
 
-		err = r.Call("ReplicaService.ReceiveOperation", op, &result)
-		checkError(err)
-		// TODO: Do something with reply?
+			err = r.Call("ReplicaService.ReceiveOperation", op, &result)
+			checkError(err)
+			// TODO: Do something with reply?	
+		}
 	}
 }
 
@@ -464,7 +483,43 @@ func BroadcastOperation(op *Operation) {
 func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValReply) error {
 	fmt.Println("Receiving op: " + receivedOp.OpType)
 
-	newOp := Operation{receivedOp.OpChar, receivedOp.OpType}
+	if replicaID == storageFlag {
+		storedDocument, ok := documentsMap[receivedOp.DocumentId]	
+		if ok {
+			opType := receivedOp.OpType
+			opChar := receivedOp.OpChar
+			
+			if storedDocument.IsExecutable(receivedOp) {
+				if opType == "del" {
+					IntegrateDel(opChar) // seems like this should be specific to a document...?
+				} else if opType == "ins" {
+					prevChar := storedDocument.WCharDic[ConstructKeyFromID(opChar.PrevID)]
+					nextChar := storedDocument.WCharDic[ConstructKeyFromID(opChar.NextID)]
+					storedDocument.IntegrateIns(opChar, &prevChar, &nextChar)
+				}
+			}
+		}
+	} else {
+		if document != nil { // document variable is nil IFF it is a storage replica
+			if document.DocName == receivedOp.DocumentId { // Only integrate if the operation belongs to this document
+				opType := receivedOp.OpType
+				opChar := receivedOp.OpChar
+			
+				if document.IsExecutable(receivedOp) {
+					if opType == "del" {
+						IntegrateDel(opChar) // seems like this should be specific to a document...?
+					} else if opType == "ins" {
+						prevChar := document.WCharDic[ConstructKeyFromID(opChar.PrevID)]
+						nextChar := document.WCharDic[ConstructKeyFromID(opChar.NextID)]
+						document.IntegrateIns(opChar, &prevChar, &nextChar)
+					}
+				}
+			}
+		}
+	}
+	
+	
+	/* newOp := Operation{receivedOp.OpChar, receivedOp.OpType, receivedOp.ReplicaId}
 	document.opPool = append(document.opPool, &newOp)
 	//document.opPool = append(document.opPool, receivedOp)
 
@@ -481,7 +536,7 @@ func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValRepl
 				document.IntegrateIns(opChar, &prevChar, &nextChar)
 			}
 		}
-	}
+	} */
 
 	reply.Val = ""
 	return nil
