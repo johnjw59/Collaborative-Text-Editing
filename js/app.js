@@ -61,13 +61,13 @@ angular.module('app', ['eb.caret'])
 				// Backspace
 				replica.send(JSON.stringify({
 						'op' : 'del',
-						'pos' : $scope.cursor.get - 1
+						'pos' : $scope.cursor.get
 					}));
 			} else if (event.keyCode == 46) {
 				// Delete
 				replica.send(JSON.stringify({
 						'op' : 'del',
-						'pos' : $scope.cursor.get
+						'pos' : $scope.cursor.get + 1
 					}));
 			}
 		}
