@@ -65,7 +65,7 @@ type Operation struct {
 // struct to represent a document
 type Document struct {
 	DocName string
-	WString []WCharacter // ordered string of WCharacters
+	WString []*WCharacter // ordered string of WCharacters
 	WCharDic map[string]WCharacter // dictionary of WCharacters (each WCharacter must retain original next/prev)
 	opPool []*Operation
 }
@@ -196,7 +196,7 @@ func main() {
 	// documentContents = ""
 	document = Document {
 		DocName: "testDoc",
-		WString: []WCharacter{startChar, endChar}, // intialize to empty, only special chars exist
+		WString: []*WCharacter{&startChar, &endChar}, // intialize to empty, only special chars exist
 		WCharDic: make(map[string]WCharacter), 
 		opPool: []*Operation{} }
 
@@ -383,8 +383,11 @@ func (doc *Document) GenerateIns(pos int, char string) {
 
 func (doc *Document) GenerateDel(pos int) {
 	wChar := doc.getIthVisible(pos)
+	fmt.Printf("setting %s to invisible\n", wChar.CharVal)
 
 	IntegrateDel(wChar)
+	docString := constructString(doc.WString)
+	fmt.Printf("Current WString: %s\n", docString)
 	// TODO: broadcast del(wchar)
 }
 
@@ -404,7 +407,6 @@ func (doc *Document) IsExecutable(op *Operation) bool {
 }
 
 func IntegrateDel(wChar *WCharacter) {
-	//charToDel := 
 	wChar.IsVisible = false
 }
 
@@ -414,10 +416,10 @@ func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *W
 
 	// if no WCharacters in between, we're done - can insert wChar at desired position
 	if len(subseqS) == 0 {
-		doc.Insert(*cChar, doc.Pos(*cNext))
+		doc.Insert(cChar, doc.Pos(*cNext))
 	} else {
-		L := make([]WCharacter, 0)
-		L = append(L, *cPrev)
+		L := make([]*WCharacter, 0)
+		L = append(L, cPrev)
 		cPrevPos := doc.Pos(*cPrev)
 		cNextPos := doc.Pos(*cNext)
 
@@ -433,7 +435,7 @@ func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *W
 		  		L = append(L, wChar)
 			}
 		  }
-		L = append(L, *cNext)
+		L = append(L, cNext)
 
 		// determine order based on ID
      	i := 1
@@ -441,7 +443,7 @@ func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *W
      		i += 1
      	}
      	// make recursive call using updated prev/next WChars
-     	doc.IntegrateIns(cChar, &L[i-1], &L[i])
+     	doc.IntegrateIns(cChar, L[i-1], L[i])
 	}
 }
 
@@ -489,7 +491,7 @@ func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValRepl
 // WOOT Helper Methods
 
 // construct string from a document
-func constructString(wString []WCharacter) string {
+func constructString(wString []*WCharacter) string {
 	contents_str := ""
 
 	for _,wchar := range wString {
@@ -511,22 +513,22 @@ func (doc *Document) Pos(toFind WCharacter) int {
 }
 
 // insert WCharacter into doc's WString at position p as well as into WCharDic
-func (doc *Document) Insert(char WCharacter, p int) {
+func (doc *Document) Insert(char *WCharacter, p int) {
 	temp := WCharacter{}
-	doc.WString = append(doc.WString, temp)
+	doc.WString = append(doc.WString, &temp)
 	copy(doc.WString[p+1:], doc.WString[p:])
 	doc.WString[p] = char
 
 	// also add to WCharDic
-	doc.WCharDic[ConstructKeyFromID(char.PrevID)] = char	
+	doc.WCharDic[ConstructKeyFromID(char.PrevID)] = *char	
 
 	docString := constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
 }
 
 // get subsequence of wstring between prevchar and nextchar
-func (doc *Document) Subsequence(prevChar WCharacter, nextChar WCharacter) []WCharacter {
-	subseq := make([]WCharacter, 0)
+func (doc *Document) Subsequence(prevChar WCharacter, nextChar WCharacter) []*WCharacter {
+	subseq := make([]*WCharacter, 0)
 	startPos := doc.Pos(prevChar)
 	endPos := doc.Pos(nextChar)
 
@@ -554,7 +556,7 @@ func (doc *Document) getIthVisible(i int) *WCharacter {
 
 	for _, wChar := range doc.WString { // TODO: check termination conditions
 		if index == i && wChar.IsVisible { // found ith visible
-			return &wChar
+			return wChar
 		} else if wChar.IsVisible{ // current character is not visible, don't increment index
 			index += 1
 		} 
@@ -595,7 +597,7 @@ func runTests() {
 
 	testDoc := Document {
 		DocName: "testDoc",
-		WString: []WCharacter{startChar, endChar}, // intialize to empty, only special chars exist
+		WString: []*WCharacter{&startChar, &endChar}, // intialize to empty, only special chars exist
 		WCharDic: make(map[string]WCharacter), 
 		opPool: []*Operation{} }
 
@@ -608,7 +610,7 @@ func runTests() {
 	// reset testDoc
 	testDoc = Document {
 		DocName: "testDoc",
-		WString: []WCharacter{startChar, endChar}, // intialize to empty, only special chars exist
+		WString: []*WCharacter{&startChar, &endChar}, // intialize to empty, only special chars exist
 		WCharDic: make(map[string]WCharacter), 
 		opPool: []*Operation{} }
 
@@ -646,7 +648,7 @@ func posTests(doc *Document) {
 		PrevID: []int{startChar.ID[0], startChar.ID[1]},
 		NextID: []int{endChar.ID[0], endChar.ID[1]} }
 
-	doc.WString = []WCharacter{startChar, char1, char2, endChar}
+	doc.WString = []*WCharacter{&startChar, &char1, &char2, &endChar}
 	posChar1 := doc.Pos(char1)
 	posChar2 := doc.Pos(char2)
 	posChar3 := doc.Pos(char3)
@@ -660,7 +662,7 @@ func posTests(doc *Document) {
 
 	// test inserts
 	fmt.Println("inserting char3 at position 2")
-	doc.Insert(char3, 2)
+	doc.Insert(&char3, 2)
 	posChar2 = doc.Pos(char2)
 	posChar3 = doc.Pos(char3)
 	fmt.Printf("Position of char2: %d\n", posChar2)
@@ -685,7 +687,7 @@ func posTests(doc *Document) {
 		NextID: []int{char2.ID[0], char2.ID[0]} }
 
 	fmt.Println("Inserting d at position 4")
-	doc.Insert(char4, 4)
+	doc.Insert(&char4, 4)
 	docString = constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
 
@@ -713,7 +715,7 @@ func posTests(doc *Document) {
 
 	// test getIthVisible
 	fmt.Println("Inserting invisible e at position 2")
-	doc.Insert(char5, 2)
+	doc.Insert(&char5, 2)
 	docString = constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
 
@@ -736,9 +738,6 @@ func posTests(doc *Document) {
 }
 
 func IntegrateTests(doc *Document) {
-	for _, entry := range doc.WCharDic {
-		fmt.Println(entry)
-	}
 
 	replicaClock += 1
 	char1 := WCharacter{
