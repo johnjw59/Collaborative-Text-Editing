@@ -17,17 +17,18 @@ type ValReply struct {
 
 // Info about other active replicas
 type ActiveReplicas struct {
-	Replicas map[int]string
+	Replicas map[int]Replica
 }
 
 // Info about the replica
 type Replica struct {
 	NodeId  int
 	RPCAddr string
+	DocumentId string
 }
 
-// key is the replica id and the value is the replica's RCP IP
-var replicaRPCMap map[int]string
+// key is the replica id and the value is the ReplicaType
+var replicaRPCMap map[int]Replica
 
 // Main server loop.
 func main() {
@@ -39,7 +40,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	replicaRPCMap = make(map[int]string)
+	replicaRPCMap = make(map[int]Replica)
 
 	replicaAddrString := os.Args[1]
 	replicaAddr, err := net.ResolveUDPAddr("udp", replicaAddrString)
@@ -68,7 +69,7 @@ func ReplicaListener(conn *net.UDPConn) {
 		err = json.Unmarshal(buf[:readLength], &replica)
 		if err == nil {
 			fmt.Printf("Replica joined: %d @ " + replica.RPCAddr + "\n", replica.NodeId)
-			replicaRPCMap[replica.NodeId] = replica.RPCAddr
+			replicaRPCMap[replica.NodeId] = replica
 			UpdateReplicas()
 		} else {
 			checkError(err)
@@ -81,8 +82,8 @@ func ReplicaListener(conn *net.UDPConn) {
 func ReplicaActivityListener() {
 
 	for {
-		for nodeId, RPCaddress := range replicaRPCMap {
-			_, err := rpc.Dial("tcp", RPCaddress)
+		for nodeId, replica := range replicaRPCMap {
+			_, err := rpc.Dial("tcp", replica.RPCAddr)
 			if err != nil {
 				delete(replicaRPCMap, nodeId)
 				fmt.Printf("Replica removed: %d from map of replicas \n", nodeId)
@@ -96,8 +97,8 @@ func ReplicaActivityListener() {
 
 // Sends the map of active replicas to all replicas.
 func UpdateReplicas() {
-	for id, RPCAddress := range replicaRPCMap {
-		r, err := rpc.Dial("tcp", RPCAddress)
+	for id, replica := range replicaRPCMap {
+		r, err := rpc.Dial("tcp", replica.RPCAddr)
 		if err != nil {
 			log.Fatalf("Cannot reach Replica %s\n%s", id, err)
 		}

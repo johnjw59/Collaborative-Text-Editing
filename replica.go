@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"time"
 	"strconv"
+	"runtime"	
 	//"github.com/arcaneiceman/GoVector/govec"
 )
 
@@ -33,7 +34,7 @@ type ValReply struct {
 
 // Info about other active replicas
 type ActiveReplicas struct {
-	Replicas map[int]string
+	Replicas map[int]Replica
 }
 
 type StorageArgs struct {
@@ -48,6 +49,7 @@ type StorageReply struct {
 type Replica struct {
 	NodeId  int
 	RPCAddr string
+	DocumentId string
 }
 
 // Communication from web-app
@@ -94,11 +96,12 @@ var endChar = WCharacter {
 var document *Document // current document being edited
 var replicaID int // each replica has a unique id
 var replicaClock int // each replica has a logical clock associated with it
-var activeReplicasMap map[int]string
+var activeReplicasMap map[int]Replica
 var documentsMap map[string]*Document // map to store different documents (used by the storage replica)
 var upgrader = websocket.Upgrader{} // use default options
 var httpAddress = flag.String("addr", ":8080", "http service address")
 var homeTempl = template.Must(template.ParseFiles("index.html"))
+var storageOpPool []*Operation
 
 const storageFlag int = -1
 
@@ -161,13 +164,13 @@ func main() {
 	// govector library for vector clock logs
 	// Logger := govec.Initialize("client", "clientlogfile")
 
-	activeReplicasMap = make(map[int]string)
+	activeReplicasMap = make(map[int]Replica)
 
 	// init operation pool
 	//opPool = make([]*Operation, 0)
 	replicaAddrString := os.Args[1]
 	frontEndAddrString := os.Args[2]
-	replicaID := GenerateReplicaId()
+	replicaID = GenerateReplicaId()
 	
 	if len(os.Args) == 4 {
 		flag, err := strconv.Atoi(os.Args[3])
@@ -195,7 +198,7 @@ func main() {
 	conn, err := net.DialUDP("udp", replicaAddr, frontEndAddr)
 	checkError(err)
 
-	replica := Replica{replicaID, replicaAddrString}
+	replica := Replica{replicaID, replicaAddrString, ""}
 	jsonReplica, err := json.Marshal(replica)
 
 	// send info about replica to front end node
@@ -204,22 +207,11 @@ func main() {
 	if err != nil {
 		fmt.Println("Error on write: ", err)
 	}
-
-/* 	// Initialize contents
-	// documentContents = ""
-	document = &Document {
-		DocName: "testDoc",
-		WString: []*WCharacter{&startChar, &endChar}, // intialize to empty, only special chars exist
-		WCharDic: make(map[string]WCharacter), 
-		opPool: []*Operation{} }
-
-	// add special chars to WCharDic
-	document.WCharDic[ConstructKeyFromID(startChar.ID)] = startChar
-	document.WCharDic[ConstructKeyFromID(endChar.ID)] = endChar */
 	
 	// check if this replica is to be used for persistent storage
 	if replicaID == storageFlag {
 		documentsMap = make(map[string]*Document)
+		storageOpPool = make([]*Operation, 0)
 	} else {
 		// Start HTTP server
 		flag.Parse()
@@ -231,6 +223,8 @@ func main() {
 		}()	
 	}
 
+	go ProcessOperations()
+	
 	// testing
 	//runTests()
 
@@ -301,13 +295,13 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 // Initialize documents with a document Id by contacting the storage replica
 func InitDocument(documentId string) *Document {
 	
-	storageIP, ok := activeReplicasMap[storageFlag]
+	storageReplica, ok := activeReplicasMap[storageFlag]
 	if !ok {
 		fmt.Println("Storage replica has not been initialized")
 		return nil
 	}
 
-	r, err := rpc.Dial("tcp", storageIP)
+	r, err := rpc.Dial("tcp", storageReplica.RPCAddr)
 	if err != nil {
 		log.Fatalf("Cannot reach Storage Replica %s\n%s", "storage", err)
 		return nil
@@ -327,13 +321,13 @@ func InitDocument(documentId string) *Document {
 // Retrieves documents based on document Id by contacting the storage replica
 func RetrieveDocument(documentId string) *Document {
 	
-	storageIP, ok := activeReplicasMap[storageFlag]
+	storageReplica, ok := activeReplicasMap[storageFlag]
 	if !ok {
 		fmt.Println("Storage replica has not been initialized")
 		return nil
 	}
 
-	r, err := rpc.Dial("tcp", storageIP)
+	r, err := rpc.Dial("tcp", storageReplica.RPCAddr)
 	if err != nil {
 		log.Fatalf("Cannot reach Storage Replica %s\n%s", "storage", err)
 	}
@@ -368,7 +362,6 @@ func GenerateReplicaId() int {
 }
 
 
-
 // WOOT Methods - three stage process of making changes
 func (doc *Document) GenerateIns(pos int, char string) {
 	// need to increment clock
@@ -391,11 +384,11 @@ func (doc *Document) GenerateIns(pos int, char string) {
 
 	doc.IntegrateIns(&newWChar, cPrev, cNext)
 	
-	/* operation := Operation{
+	operation := Operation{
 		OpChar: &newWChar,
 		OpType: "ins",
 		DocumentId: doc.DocName}
-	BroadcastOperation(&operation) */
+	BroadcastOperation(&operation)
 }
 
 func (doc *Document) GenerateDel(pos int) {
@@ -465,9 +458,9 @@ func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *W
 }
 
 func BroadcastOperation(op *Operation) {
-	for replica := range activeReplicasMap {
-		if replica != replicaID {
-			r, err := rpc.Dial("tcp", activeReplicasMap[replica])
+	for _, replica := range activeReplicasMap {
+		if replica.NodeId != replicaID {
+			r, err := rpc.Dial("tcp", replica.RPCAddr)
 			checkError(err)
 
 			var result ValReply
@@ -479,69 +472,65 @@ func BroadcastOperation(op *Operation) {
 	}
 }
 
-// receive operation from remote replica and add to local op pool
+// receive operation from remote replica and add to op pool
 func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValReply) error {
 	fmt.Println("Receiving op: " + receivedOp.OpType)
 
+	// Add operation to the correct pool
 	if replicaID == storageFlag {
-		storedDocument, ok := documentsMap[receivedOp.DocumentId]	
-		if ok {
-			opType := receivedOp.OpType
-			opChar := receivedOp.OpChar
-			
-			if storedDocument.IsExecutable(receivedOp) {
-				if opType == "del" {
-					IntegrateDel(opChar) // seems like this should be specific to a document...?
-				} else if opType == "ins" {
-					prevChar := storedDocument.WCharDic[ConstructKeyFromID(opChar.PrevID)]
-					nextChar := storedDocument.WCharDic[ConstructKeyFromID(opChar.NextID)]
-					storedDocument.IntegrateIns(opChar, &prevChar, &nextChar)
-				}
-			}
-		}
+		storageOpPool = append(storageOpPool, receivedOp)
 	} else {
-		if document != nil { // document variable is nil IFF it is a storage replica
-			if document.DocName == receivedOp.DocumentId { // Only integrate if the operation belongs to this document
-				opType := receivedOp.OpType
-				opChar := receivedOp.OpChar
-			
-				if document.IsExecutable(receivedOp) {
-					if opType == "del" {
-						IntegrateDel(opChar) // seems like this should be specific to a document...?
-					} else if opType == "ins" {
-						prevChar := document.WCharDic[ConstructKeyFromID(opChar.PrevID)]
-						nextChar := document.WCharDic[ConstructKeyFromID(opChar.NextID)]
-						document.IntegrateIns(opChar, &prevChar, &nextChar)
-					}
-				}
-			}
-		}
+		document.opPool = append(document.opPool, receivedOp)
 	}
-	
-	
-	/* newOp := Operation{receivedOp.OpChar, receivedOp.OpType, receivedOp.ReplicaId}
-	document.opPool = append(document.opPool, &newOp)
-	//document.opPool = append(document.opPool, receivedOp)
-
-	// loop through opPool here
-	for _, op := range document.opPool {
-		opType := op.OpType
-		opChar := op.OpChar
-		if document.IsExecutable(op) {
-			if opType == "del" {
-				IntegrateDel(opChar) // seems like this should be specific to a document...?
-			} else if opType == "ins" {
-				prevChar := document.WCharDic[ConstructKeyFromID(opChar.PrevID)]
-				nextChar := document.WCharDic[ConstructKeyFromID(opChar.NextID)]
-				document.IntegrateIns(opChar, &prevChar, &nextChar)
-			}
-		}
-	} */
 
 	reply.Val = ""
 	return nil
 }
 
+// Process all pending operations
+func ProcessOperations() {
+	for {
+		runtime.Gosched()		
+		if replicaID == storageFlag { // if storage replica, loop through storage operation pool
+			for i := len(storageOpPool) - 1; i >= 0; i-- { // use a downward loop, to avoid errors when removing elements while inside a loop
+				op := storageOpPool[i]
+				storedDocument, exists := documentsMap[op.DocumentId]
+				if exists {
+					if storedDocument.IsExecutable(op) {
+						switch op.OpType {
+							case "ins":
+								prevChar := storedDocument.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
+								nextChar := storedDocument.WCharDic[ConstructKeyFromID(op.OpChar.NextID)]
+								storedDocument.IntegrateIns(op.OpChar, &prevChar, &nextChar)
+								storageOpPool = append(storageOpPool[:i], storageOpPool[i+1:]...) // remove from pool
+							case "del": 
+								// IntegrateDel()
+						}
+					}	
+				}
+			}
+		} else { // loop through document pool
+			if document == nil {
+				continue
+			}
+			
+			for i := len(document.opPool) - 1; i >= 0; i-- {
+				op := document.opPool[i]
+				if document.IsExecutable(op) {
+					switch op.OpType {
+						case "ins":
+							prevChar := document.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
+							nextChar := document.WCharDic[ConstructKeyFromID(op.OpChar.NextID)]
+							document.IntegrateIns(op.OpChar, &prevChar, &nextChar)
+							document.opPool = append(document.opPool[:i], document.opPool[i+1:]...) // remove from pool
+						case "del": 
+							// IntegrateDel()
+					}
+				}
+			}
+		}		
+	}
+}
 
 // WOOT Helper Methods
 
@@ -644,9 +633,7 @@ func checkError(err error) {
 }
 
 
-
 // Tests
-
 func runTests() {
 	fmt.Println("Starting testing")
 
