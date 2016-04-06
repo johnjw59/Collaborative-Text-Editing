@@ -5,7 +5,7 @@ angular.module('app', ['eb.caret'])
 
 	var pathname = window.location.pathname;
 	var initNewDoc = false;
-
+	
 	if (pathname == "/") {
 		initNewDoc = true;
 	}
@@ -31,12 +31,12 @@ angular.module('app', ['eb.caret'])
 
 	// Integrate received document
 	replica.onmessage = function (event) {
-		
+				
 		if (initNewDoc) {
+			initNewDoc = false;
 			$scope.shareLink = "Share Link: localhost:8080/doc/" + event.data;
 			$scope.$apply();
-			isNewDoc = false;
-		} else {
+		} else { 
 			console.log(event);
 			$scope.document = event.data;
 			$scope.$apply();	

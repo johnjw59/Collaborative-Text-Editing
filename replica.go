@@ -59,9 +59,6 @@ type AppMessage struct {
 	Val string
 }
 
-//
-var ws *websocket.Conn
-
 // struct to represent operations
 type Operation struct {
 	OpChar *WCharacter
@@ -105,6 +102,168 @@ var storageOpPool []*Operation
 
 const storageFlag int = -1
 
+// WebSocket protocol 
+// Hub maintains the set of active connections and broadcasts messages to the connections.
+
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+	// Maximum message size allowed from peer.
+	maxMessageSize = 1024
+)
+
+type Hub struct {
+	// Registered connections.
+	connections map[*Connection]string
+	// Inbound messages from the connections.
+	broadcast chan []byte
+	// Register requests from the connections.
+	register chan *Connection
+	// Unregister requests from connections.
+	unregister chan *Connection
+}
+
+var hub = Hub {
+	broadcast:   make(chan []byte),
+	register:    make(chan *Connection),
+	unregister:  make(chan *Connection),
+	connections: make(map[*Connection]string),
+}
+
+func (h *Hub) run() {
+	for {
+		select {
+		case c := <-h.register:
+			h.connections[c] = ""
+		case c := <-h.unregister:
+			if _, ok := h.connections[c]; ok {
+				delete(h.connections, c)
+				close(c.send)
+			}
+		case m := <-h.broadcast:
+			for c := range h.connections {
+				if h.connections[c] == document.DocName {
+					select {
+						case c.send <- m:
+						default:
+							close(c.send)
+							delete(h.connections, c)
+					}	
+				}
+			}
+		}
+	}
+}
+
+// Connection is an middleman between the websocket connection and the hub.
+type Connection struct {
+	// The websocket connection.
+	ws *websocket.Conn
+	// Buffered channel of outbound messages.
+	send chan []byte
+	// document id
+	documentId string
+}
+
+// readPump pumps messages from the websocket connection to the hub.
+func (c *Connection) readPump() {
+	defer func() {
+		hub.unregister <- c
+		c.ws.Close()
+	}()
+	c.ws.SetReadLimit(maxMessageSize)
+	c.ws.SetReadDeadline(time.Now().Add(pongWait))
+	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	
+	for {
+		cmd := AppMessage{}
+		err := c.ws.ReadJSON(&cmd)
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+				log.Printf("error: %v", err)
+			}
+			break
+		}
+		
+		fmt.Println(cmd)
+		
+		// Interpret message and handle different cases (ins/del)
+		switch cmd.Op {
+			case "init":
+				documentId := CreateDocumentId(9)
+				document = InitDocument(documentId)
+				hub.connections[c] = document.DocName
+				message := []byte(documentId)
+				hub.broadcast <- message
+			case "retrieve":
+				document = RetrieveDocument(cmd.Val)
+				hub.connections[c] = document.DocName
+				message := []byte(constructString(document.WString))
+				hub.broadcast <- message
+			case "ins":
+				document.GenerateIns(cmd.Pos, cmd.Val)  
+				message := []byte(constructString(document.WString))
+				hub.broadcast <- message
+			case "del":
+				document.GenerateDel(cmd.Pos)
+				message := []byte(constructString(document.WString))
+				hub.broadcast <- message
+		}
+	}
+}
+
+// write writes a message with the given message type and payload.
+func (c *Connection) write(mt int, payload []byte) error {
+	c.ws.SetWriteDeadline(time.Now().Add(writeWait))
+	return c.ws.WriteMessage(mt, payload)
+}
+
+// writePump pumps messages from the hub to the websocket connection.
+func (c *Connection) writePump() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.ws.Close()
+	}()
+	for {
+		select {
+		case message, ok := <-c.send:
+			if !ok {
+				c.write(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.write(websocket.TextMessage, message); err != nil {
+				return
+			}
+		case <-ticker.C:
+			if err := c.write(websocket.PingMessage, []byte{}); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// Handles websocket requests from the web-app
+func ServeWS(w http.ResponseWriter, r *http.Request) {
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)	
+		return
+	}
+	
+	c := &Connection {
+		send: make(chan []byte, 1024),
+		ws: ws }
+	hub.register <- c
+	go c.writePump()
+	c.readPump()	
+}
+
+// RPC protocol
 type ReplicaService struct {}
 
 // Set local map of active nodes
@@ -132,6 +291,19 @@ func (rs *ReplicaService) InitDocument(args *StorageArgs, reply *StorageReply) e
 	fmt.Println("Stored document: " + documentId)
 	reply.StoredDocument = documentsMap[documentId]
 	return nil
+}
+
+// function to setup RPC
+func RPCService(replicaAddrString string) {
+	// handle RPC calls from other Replicas
+	rpc.Register(&ReplicaService{})
+	r, err := net.Listen("tcp", replicaAddrString)
+	checkError(err)
+	for {
+		conn, err := r.Accept()
+		checkError(err)
+		go rpc.ServeConn(conn)
+	}
 }
 
 // Retrieves a document based on a document id. Used for the persistent document storage
@@ -208,35 +380,30 @@ func main() {
 		fmt.Println("Error on write: ", err)
 	}
 	
+	go ProcessOperations()
+	
 	// check if this replica is to be used for persistent storage
 	if replicaID == storageFlag {
 		documentsMap = make(map[string]*Document)
 		storageOpPool = make([]*Operation, 0)
+		RPCService(replicaAddrString)
 	} else {
+		go RPCService(replicaAddrString)
+		
 		// Start HTTP server
 		flag.Parse()
+		go hub.run()
 		http.Handle("/", http.StripPrefix("/", http.FileServer(http.Dir("./"))))
 		http.HandleFunc("/doc/", ServeHome)
 		http.HandleFunc("/ws", ServeWS)
-		go func() {
-			log.Fatal(http.ListenAndServe(*httpAddress, nil))
-		}()	
+		err = http.ListenAndServe(*httpAddress, nil)
+		if err != nil {
+			log.Fatal("ListenAndServe: ", err)
+		}
 	}
-
-	go ProcessOperations()
 	
 	// testing
 	//runTests()
-
-	// handle RPC calls from other Replicas
-	rpc.Register(&ReplicaService{})
-	r, err := net.Listen("tcp", replicaAddrString)
-	checkError(err)
-	for {
-		conn, err := r.Accept()
-		checkError(err)
-		go rpc.ServeConn(conn)
-	}
 }
 
 // Serve the home page at localhost:8080
@@ -256,40 +423,6 @@ func ServeHome(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	homeTempl.Execute(w, "ws://" + r.Host + "/ws")
-}
-
-// Handles websocket requests from the web-app
-func ServeWS(w http.ResponseWriter, r *http.Request) {
-	var cmd AppMessage
-	ws, err := upgrader.Upgrade(w, r, nil)
-	checkError(err)
-
-	for {
-		cmd = AppMessage{}
-		err := ws.ReadJSON(&cmd)
-		if err != nil {
-			log.Println("readWS:", err)
-			break
-		}
-		fmt.Println(cmd)
-
-		// Interpret message and handle different cases (ins/del)
-		switch cmd.Op {
-			case "init":
-				documentId := CreateDocumentId(9)
-				document = InitDocument(documentId)
-				ws.WriteMessage(websocket.TextMessage, []byte(documentId))
-			case "retrieve":
-				document = RetrieveDocument(cmd.Val)
-				ws.WriteMessage(websocket.TextMessage, []byte(constructString(document.WString)))
-			case "ins":
-				document.GenerateIns(cmd.Pos, cmd.Val)  
-			case "del":
-				document.GenerateDel(cmd.Pos)
-		}
-	}
-
-	ws.Close()
 }
 
 // Initialize documents with a document Id by contacting the storage replica
