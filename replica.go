@@ -564,7 +564,7 @@ func (doc *Document) Insert(char *WCharacter, p int) {
 	doc.WString[p] = char
 	
 	// also add to WCharDic
-	doc.WCharDic[ConstructKeyFromID(char.PrevID)] = *char	
+	doc.WCharDic[ConstructKeyFromID(char.ID)] = *char	
 
 	docString := constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
