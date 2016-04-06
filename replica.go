@@ -138,11 +138,11 @@ func (rs *ReplicaService) InitDocument(args *StorageArgs, reply *StorageReply) e
 // TODO: return a Document object
 func (rs *ReplicaService) RetrieveDocument(args *StorageArgs, reply *StorageReply) error {
 	documentId := args.DocumentId
-	document, ok := documentsMap[documentId]
+	storedDocument, ok := documentsMap[documentId]
 	
 	if ok {
 		fmt.Println("Retrieved document: " + documentId)
-		reply.StoredDocument = document
+		reply.StoredDocument = storedDocument
 	} else {
 		fmt.Println("Document " + documentId + " does not exist")
 	}
@@ -374,7 +374,7 @@ func (doc *Document) GenerateIns(pos int, char string) {
 		fmt.Println("Failed to get next or prev")
 		return
 	}
-
+	
 	newWChar := WCharacter{
 		ID: []int{replicaID, replicaClock},
 		IsVisible: true, 
@@ -383,7 +383,7 @@ func (doc *Document) GenerateIns(pos int, char string) {
 		NextID: cNext.ID }
 
 	doc.IntegrateIns(&newWChar, cPrev, cNext)
-	
+
 	operation := Operation{
 		OpChar: &newWChar,
 		OpType: "ins",
@@ -439,8 +439,8 @@ func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *W
 
 		// find all characters
 		for _, wChar := range subseqS {
-			prev := doc.Pos(document.WCharDic[ConstructKeyFromID(wChar.PrevID)])
-			next := doc.Pos(document.WCharDic[ConstructKeyFromID(wChar.NextID)])
+			prev := doc.Pos(doc.WCharDic[ConstructKeyFromID(wChar.PrevID)])
+			next := doc.Pos(doc.WCharDic[ConstructKeyFromID(wChar.NextID)])
 			if prev <= cPrevPos && next >= cNextPos {
 		  		L = append(L, wChar)
 			}
@@ -499,9 +499,9 @@ func ProcessOperations() {
 					if storedDocument.IsExecutable(op) {
 						switch op.OpType {
 							case "ins":
-								prevChar := storedDocument.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
-								nextChar := storedDocument.WCharDic[ConstructKeyFromID(op.OpChar.NextID)]
-								storedDocument.IntegrateIns(op.OpChar, &prevChar, &nextChar)
+								prevCharacter := storedDocument.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
+								nextCharacter := storedDocument.WCharDic[ConstructKeyFromID(op.OpChar.NextID)]
+								storedDocument.IntegrateIns(op.OpChar, &prevCharacter, &nextCharacter)
 								storageOpPool = append(storageOpPool[:i], storageOpPool[i+1:]...) // remove from pool
 							case "del": 
 								// IntegrateDel()
@@ -562,7 +562,7 @@ func (doc *Document) Insert(char *WCharacter, p int) {
 	doc.WString = append(doc.WString, &temp)
 	copy(doc.WString[p+1:], doc.WString[p:])
 	doc.WString[p] = char
-
+	
 	// also add to WCharDic
 	doc.WCharDic[ConstructKeyFromID(char.PrevID)] = *char	
 
