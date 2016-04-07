@@ -665,7 +665,9 @@ func ProcessOperations() {
 							prevChar := document.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
 							nextChar := document.WCharDic[ConstructKeyFromID(op.OpChar.NextID)]
 							document.IntegrateIns(op.OpChar, &prevChar, &nextChar)
-							hub.broadcast <- []byte(constructString(document.WString))
+							if op.DocumentId == document.DocName {
+								hub.broadcast <- []byte(constructString(document.WString))
+							}
 							document.opPool = append(document.opPool[:i], document.opPool[i+1:]...) // remove from pool
 						case "del": 
 							// IntegrateDel()
