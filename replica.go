@@ -594,12 +594,16 @@ func BroadcastOperation(op *Operation) {
 	for _, replica := range activeReplicasMap {
 		if replica.NodeId != replicaID {
 			r, err := rpc.Dial("tcp", replica.RPCAddr)
-			checkError(err)
+			if err != nil {
+				fmt.Println("Cannot contact replica")
+			}
 
 			var result ValReply
 
 			err = r.Call("ReplicaService.ReceiveOperation", op, &result)
-			checkError(err)
+			if err != nil {
+				fmt.Println("Cannot call replica procedure")	
+			}
 			// TODO: Do something with reply?	
 		}
 	}
@@ -613,6 +617,12 @@ func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValRepl
 	if replicaID == storageFlag {
 		storageOpPool = append(storageOpPool, receivedOp)
 	} else {
+	
+		if document == nil {
+			fmt.Println("document is nil")
+			return nil
+		}
+	
 		document.opPool = append(document.opPool, receivedOp)
 	}
 
@@ -655,6 +665,7 @@ func ProcessOperations() {
 							prevChar := document.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
 							nextChar := document.WCharDic[ConstructKeyFromID(op.OpChar.NextID)]
 							document.IntegrateIns(op.OpChar, &prevChar, &nextChar)
+							hub.broadcast <- []byte(constructString(document.WString))
 							document.opPool = append(document.opPool[:i], document.opPool[i+1:]...) // remove from pool
 						case "del": 
 							// IntegrateDel()

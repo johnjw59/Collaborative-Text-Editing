@@ -63,7 +63,9 @@ func ReplicaListener(conn *net.UDPConn) {
 	buf := make([]byte, 1024)
 	for {
 		readLength, _, err := conn.ReadFromUDP(buf)
-		checkError(err)
+		if err != nil {
+			log.Fatalf("Error read from UDP %s\n", err)
+		}
 		// receive Replica struct from replica node
 		var replica Replica
 		err = json.Unmarshal(buf[:readLength], &replica)
@@ -72,7 +74,7 @@ func ReplicaListener(conn *net.UDPConn) {
 			replicaRPCMap[replica.NodeId] = replica
 			UpdateReplicas()
 		} else {
-			checkError(err)
+			log.Fatalf("Error unmarshalling replica %s\n", err)
 		}
 	}
 }
