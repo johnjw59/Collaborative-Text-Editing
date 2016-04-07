@@ -70,7 +70,7 @@ type Operation struct {
 type Document struct {
 	DocName string
 	WString []*WCharacter // ordered string of WCharacters
-	WCharDic map[string]WCharacter // dictionary of WCharacters (each WCharacter must retain original next/prev)
+	WCharDic map[string]*WCharacter // dictionary of WCharacters (each WCharacter must retain original next/prev)
 	opPool []*Operation
 }
 
@@ -282,11 +282,11 @@ func (rs *ReplicaService) InitDocument(args *StorageArgs, reply *StorageReply) e
 	newDocument := Document {
 		DocName: documentId,
 		WString: []*WCharacter{&startChar, &endChar}, // intialize to empty, only special chars exist
-		WCharDic: make(map[string]WCharacter), 
+		WCharDic: make(map[string]*WCharacter), 
 		opPool: []*Operation{} }
 	
-	newDocument.WCharDic[ConstructKeyFromID(startChar.ID)] = startChar
-	newDocument.WCharDic[ConstructKeyFromID(endChar.ID)] = endChar	
+	newDocument.WCharDic[ConstructKeyFromID(startChar.ID)] = &startChar
+	newDocument.WCharDic[ConstructKeyFromID(endChar.ID)] = &endChar	
 	documentsMap[documentId] = &newDocument
 	fmt.Println("Stored document: " + documentId)
 	reply.StoredDocument = documentsMap[documentId]
@@ -528,10 +528,16 @@ func (doc *Document) GenerateDel(pos int) {
 	wChar := doc.getIthVisible(pos)
 	fmt.Printf("setting %s to invisible\n", wChar.CharVal)
 
-	IntegrateDel(wChar)
+	doc.IntegrateDel(wChar)
 	docString := constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
-	// TODO: broadcast del(wchar)
+
+	operation := Operation{
+		OpChar: wChar,
+		OpType: "del",
+		DocumentId: doc.DocName}
+	BroadcastOperation(&operation)
+
 }
 
 // check preconditions of operation
@@ -549,8 +555,11 @@ func (doc *Document) IsExecutable(op *Operation) bool {
 	}
 }
 
-func IntegrateDel(wChar *WCharacter) {
-	wChar.IsVisible = false
+func (doc *Document) IntegrateDel(wChar *WCharacter) {
+	toDelete, exists := doc.WCharDic[ConstructKeyFromID(wChar.ID)]
+	if exists {
+		toDelete.IsVisible = false
+	}
 }
 
 func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *WCharacter) {
@@ -566,14 +575,10 @@ func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *W
 		cPrevPos := doc.Pos(*cPrev)
 		cNextPos := doc.Pos(*cNext)
 
-		for _, entry := range doc.WCharDic {
-			fmt.Println(entry)
-		}
-
 		// find all characters
 		for _, wChar := range subseqS {
-			prev := doc.Pos(doc.WCharDic[ConstructKeyFromID(wChar.PrevID)])
-			next := doc.Pos(doc.WCharDic[ConstructKeyFromID(wChar.NextID)])
+			prev := doc.Pos(*doc.WCharDic[ConstructKeyFromID(wChar.PrevID)])
+			next := doc.Pos(*doc.WCharDic[ConstructKeyFromID(wChar.NextID)])
 			if prev <= cPrevPos && next >= cNextPos {
 		  		L = append(L, wChar)
 			}
@@ -644,10 +649,11 @@ func ProcessOperations() {
 							case "ins":
 								prevCharacter := storedDocument.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
 								nextCharacter := storedDocument.WCharDic[ConstructKeyFromID(op.OpChar.NextID)]
-								storedDocument.IntegrateIns(op.OpChar, &prevCharacter, &nextCharacter)
+								storedDocument.IntegrateIns(op.OpChar, prevCharacter, nextCharacter)
 								storageOpPool = append(storageOpPool[:i], storageOpPool[i+1:]...) // remove from pool
 							case "del": 
-								// IntegrateDel()
+								 storedDocument.IntegrateDel(op.OpChar)
+								 storageOpPool = append(storageOpPool[:i], storageOpPool[i+1:]...)
 						}
 					}	
 				}
@@ -664,13 +670,17 @@ func ProcessOperations() {
 						case "ins":
 							prevChar := document.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
 							nextChar := document.WCharDic[ConstructKeyFromID(op.OpChar.NextID)]
-							document.IntegrateIns(op.OpChar, &prevChar, &nextChar)
+							document.IntegrateIns(op.OpChar, prevChar, nextChar)
 							if op.DocumentId == document.DocName {
 								hub.broadcast <- []byte(constructString(document.WString))
 							}
 							document.opPool = append(document.opPool[:i], document.opPool[i+1:]...) // remove from pool
 						case "del": 
-							// IntegrateDel()
+							document.IntegrateDel(op.OpChar)
+							if op.DocumentId == document.DocName {
+								hub.broadcast <- []byte(constructString(document.WString))
+							}
+							document.opPool = append(document.opPool[:i], document.opPool[i+1:]...)
 					}
 				}
 			}
@@ -710,7 +720,7 @@ func (doc *Document) Insert(char *WCharacter, p int) {
 	doc.WString[p] = char
 	
 	// also add to WCharDic
-	doc.WCharDic[ConstructKeyFromID(char.ID)] = *char	
+	doc.WCharDic[ConstructKeyFromID(char.ID)] = char	
 
 	docString := constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
@@ -769,6 +779,12 @@ func ConstructKeyFromID(ID []int) string {
 	return (strconv.Itoa(ID[0]) + "-" + strconv.Itoa(ID[1]))
 }
 
+func (doc *Document) printWCharDic() {
+	for _, entry := range doc.WCharDic {
+		fmt.Println(entry)
+	}
+}
+
 
 // If error is non-nil, print it out and halt.
 func checkError(err error) {
@@ -786,12 +802,12 @@ func runTests() {
 	testDoc := Document {
 		DocName: "testDoc",
 		WString: []*WCharacter{&startChar, &endChar}, // intialize to empty, only special chars exist
-		WCharDic: make(map[string]WCharacter), 
+		WCharDic: make(map[string]*WCharacter), 
 		opPool: []*Operation{} }
 
 	// add special chars to WCharDic
-	testDoc.WCharDic[ConstructKeyFromID(startChar.ID)] = startChar
-	testDoc.WCharDic[ConstructKeyFromID(endChar.ID)] = endChar
+	testDoc.WCharDic[ConstructKeyFromID(startChar.ID)] = &startChar
+	testDoc.WCharDic[ConstructKeyFromID(endChar.ID)] = &endChar
 
 	//posTests(&testDoc)
 
@@ -799,12 +815,12 @@ func runTests() {
 	testDoc = Document {
 		DocName: "testDoc",
 		WString: []*WCharacter{&startChar, &endChar}, // intialize to empty, only special chars exist
-		WCharDic: make(map[string]WCharacter), 
+		WCharDic: make(map[string]*WCharacter), 
 		opPool: []*Operation{} }
 
 	// add special chars to WCharDic
-	testDoc.WCharDic[ConstructKeyFromID(startChar.ID)] = startChar
-	testDoc.WCharDic[ConstructKeyFromID(endChar.ID)] = endChar
+	testDoc.WCharDic[ConstructKeyFromID(startChar.ID)] = &startChar
+	testDoc.WCharDic[ConstructKeyFromID(endChar.ID)] = &endChar
 
 	IntegrateTests(&testDoc)
 }
@@ -968,7 +984,7 @@ func IntegrateTests(doc *Document) {
 	fmt.Printf("Current WString: %s\n", docString)
 
 	fmt.Println("IntegrateDel for b")
-	IntegrateDel(&char2)
+	doc.IntegrateDel(&char2)
 	docString = constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
 }
