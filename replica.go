@@ -500,8 +500,16 @@ func (doc *Document) GenerateIns(pos int, char string) {
 	// need to increment clock
 	replicaClock += 1
 
-	cPrev := doc.getIthVisible(pos)
-	cNext := doc.getIthVisible(pos + 1)
+	cPrev, exists := doc.getIthVisible(pos)
+	if !exists {
+		fmt.Println("Failed to get prev")
+		return
+	}
+	cNext, exists := doc.getIthVisible(pos + 1)
+	if !exists {
+		fmt.Println("Failed to get next")
+		return
+	}
 
 	if cPrev == nil || cNext == nil {
 		fmt.Println("Failed to get next or prev")
@@ -525,7 +533,11 @@ func (doc *Document) GenerateIns(pos int, char string) {
 }
 
 func (doc *Document) GenerateDel(pos int) {
-	wChar := doc.getIthVisible(pos)
+	wChar, exists := doc.getIthVisible(pos)
+	if !exists {
+		fmt.Println("Failed to get ithvis")
+		return
+	}
 	fmt.Printf("setting %s to invisible\n", wChar.CharVal)
 
 	doc.IntegrateDel(wChar)
@@ -556,9 +568,17 @@ func (doc *Document) IsExecutable(op *Operation) bool {
 }
 
 func (doc *Document) IntegrateDel(wChar *WCharacter) {
+	doc.printWCharDic()
 	toDelete, exists := doc.WCharDic[ConstructKeyFromID(wChar.ID)]
 	if exists {
-		toDelete.IsVisible = false
+		// don't want to delete start/end characters
+		if !(isStartOrEndChar(wChar)) {
+			fmt.Printf("integrate delete on %s\n", toDelete.CharVal)
+			toDelete.IsVisible = false
+			fmt.Println(constructString(doc.WString))
+		}
+	} else {
+		fmt.Printf("failed to delete -> not in map %s\n", wChar.CharVal)
 	}
 }
 
@@ -568,6 +588,7 @@ func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *W
 
 	// if no WCharacters in between, we're done - can insert wChar at desired position
 	if len(subseqS) == 0 {
+		fmt.Printf("itegrate insert done -> inserting at posn: %d\n ", doc.Pos(*cNext))
 		doc.Insert(cChar, doc.Pos(*cNext))
 	} else {
 		L := make([]*WCharacter, 0)
@@ -665,7 +686,9 @@ func ProcessOperations() {
 			
 			for i := len(document.opPool) - 1; i >= 0; i-- {
 				op := document.opPool[i]
+				fmt.Println("trying to execute")
 				if document.IsExecutable(op) {
+					fmt.Println("executing")
 					switch op.OpType {
 						case "ins":
 							prevChar := document.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
@@ -751,17 +774,17 @@ func (doc *Document) Contains(wCharID []int) bool {
 
 
 // return the ith visible character in a string of WCharacters
-func (doc *Document) getIthVisible(i int) *WCharacter {
+func (doc *Document) getIthVisible(i int) (*WCharacter, bool) {
 	index := 0
 
 	for _, wChar := range doc.WString { // TODO: check termination conditions
 		if index == i && wChar.IsVisible { // found ith visible
-			return wChar
+			return wChar, true
 		} else if wChar.IsVisible{ // current character is not visible, don't increment index
 			index += 1
 		} 
 	}
-	return nil // no ith visible character
+	return nil, false // no ith visible character
 }
 
 // returns boolean representing whether ID1 < ID2
@@ -779,6 +802,14 @@ func ConstructKeyFromID(ID []int) string {
 	return (strconv.Itoa(ID[0]) + "-" + strconv.Itoa(ID[1]))
 }
 
+func isStartOrEndChar(wChar *WCharacter) bool {
+	if (wChar.ID[0] == startChar.ID[0] && wChar.ID[1] == startChar.ID[1]) || (wChar.ID[0] == endChar.ID[0] && wChar.ID[1] == endChar.ID[1]) {
+		fmt.Println("trying to delete start or end char!")
+		return true
+	}
+	return false
+}
+
 func (doc *Document) printWCharDic() {
 	for _, entry := range doc.WCharDic {
 		fmt.Println(entry)
@@ -794,7 +825,7 @@ func checkError(err error) {
 	}
 }
 
-
+/*
 // Tests
 func runTests() {
 	fmt.Println("Starting testing")
@@ -987,4 +1018,4 @@ func IntegrateTests(doc *Document) {
 	doc.IntegrateDel(&char2)
 	docString = constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
-}
+}*/
