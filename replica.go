@@ -560,6 +560,11 @@ func (doc *Document) GenerateDel(pos int) {
 
 	wChar := doc.IntegrateDel(pos)
 
+	if wChar == nil {
+		fmt.Println("integrate delete failed")
+		return
+	}
+
 	docString := constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
 
