@@ -552,7 +552,7 @@ func (doc *Document) GenerateIns(pos int, char string) {
 		DocumentId: doc.DocName,
 		OriginatorID: replicaID,
 		OriginatorClock: shivizClock}
-	BroadcastOperation(&operation)
+	go BroadcastOperation(&operation)
 }
 
 func (doc *Document) GenerateDel(pos int) {
@@ -575,7 +575,7 @@ func (doc *Document) GenerateDel(pos int) {
 		DocumentId: doc.DocName,
 		OriginatorID: replicaID,
 		OriginatorClock: shivizClock}
-	BroadcastOperation(&operation)
+	go BroadcastOperation(&operation)
 
 }
 
@@ -662,6 +662,7 @@ func BroadcastOperation(op *Operation) {
 			r, err := rpc.Dial("tcp", replica.RPCAddr)
 			if err != nil {
 				fmt.Println("Cannot contact replica")
+				continue
 			}
 
 			var result ValReply
