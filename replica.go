@@ -570,16 +570,16 @@ func (doc *Document) IntegrateDel(pos int) (*WCharacter) {
 		fmt.Println("Failed to get ithvis")
 		return nil
 	}
-	
-	fmt.Printf("setting %s to invisible\n", wChar.CharVal)
-	wChar.IsVisible = false
+
+	// don't want to delete start/end characters
+	if !(isStartOrEndChar(wChar)) {
+		fmt.Printf("setting %s to invisible\n", wChar.CharVal)
+		wChar.IsVisible = false
+	}
 	
 	_, exists = doc.WCharDic[ConstructKeyFromID(wChar.ID)]
 	if exists {
-		// don't want to delete start/end characters
-		if !(isStartOrEndChar(wChar)) {
-			doc.WCharDic[ConstructKeyFromID(wChar.ID)] = wChar
-		}
+		doc.WCharDic[ConstructKeyFromID(wChar.ID)] = wChar
 	} else {
 		fmt.Printf("failed to delete -> not in map %s\n", wChar.CharVal)
 	}
