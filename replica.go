@@ -369,9 +369,9 @@ func main() {
 
 	// govector library for vector clock logs
 	if replicaID == storageFlag {
-		Logger = govec.Initialize("replica", "replicalogfile")
+		Logger = govec.Initialize("replica", "replica")
 	} else {
-		Logger = govec.Initialize("client", "clientlogfile")
+		Logger = govec.Initialize("client", "client")
 	}
 
 	// initialize clocks
