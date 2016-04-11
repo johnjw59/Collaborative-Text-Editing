@@ -63,6 +63,7 @@ type AppMessage struct {
 type Operation struct {
 	OpChar *WCharacter
 	OpType string
+	Position int
 	DocumentId string
 }
 
@@ -533,20 +534,14 @@ func (doc *Document) GenerateIns(pos int, char string) {
 }
 
 func (doc *Document) GenerateDel(pos int) {
-	wChar, exists := doc.getIthVisible(pos)
-	if !exists {
-		fmt.Println("Failed to get ithvis")
-		return
-	}
-	fmt.Printf("setting %s to invisible\n", wChar.CharVal)
-
-	doc.IntegrateDel(wChar)
+	wChar := doc.IntegrateDel(pos)
 	docString := constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
 
 	operation := Operation{
-		OpChar: wChar,
 		OpType: "del",
+		OpChar: wChar,
+		Position: pos,
 		DocumentId: doc.DocName}
 	BroadcastOperation(&operation)
 
@@ -567,19 +562,29 @@ func (doc *Document) IsExecutable(op *Operation) bool {
 	}
 }
 
-func (doc *Document) IntegrateDel(wChar *WCharacter) {
-	doc.printWCharDic()
-	toDelete, exists := doc.WCharDic[ConstructKeyFromID(wChar.ID)]
+// returns the character that was 'deleted'
+func (doc *Document) IntegrateDel(pos int) (*WCharacter) {
+	
+	wChar, exists := doc.getIthVisible(pos)
+	if !exists {
+		fmt.Println("Failed to get ithvis")
+		return nil
+	}
+	
+	fmt.Printf("setting %s to invisible\n", wChar.CharVal)
+	wChar.IsVisible = false
+	
+	_, exists = doc.WCharDic[ConstructKeyFromID(wChar.ID)]
 	if exists {
 		// don't want to delete start/end characters
 		if !(isStartOrEndChar(wChar)) {
-			fmt.Printf("integrate delete on %s\n", toDelete.CharVal)
-			toDelete.IsVisible = false
-			fmt.Println(constructString(doc.WString))
+			doc.WCharDic[ConstructKeyFromID(wChar.ID)] = wChar
 		}
 	} else {
 		fmt.Printf("failed to delete -> not in map %s\n", wChar.CharVal)
 	}
+	
+	return wChar
 }
 
 func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *WCharacter) {
@@ -673,7 +678,7 @@ func ProcessOperations() {
 								storedDocument.IntegrateIns(op.OpChar, prevCharacter, nextCharacter)
 								storageOpPool = append(storageOpPool[:i], storageOpPool[i+1:]...) // remove from pool
 							case "del": 
-								 storedDocument.IntegrateDel(op.OpChar)
+								 _ = storedDocument.IntegrateDel(op.Position)
 								 storageOpPool = append(storageOpPool[:i], storageOpPool[i+1:]...)
 						}
 					}	
@@ -686,9 +691,7 @@ func ProcessOperations() {
 			
 			for i := len(document.opPool) - 1; i >= 0; i-- {
 				op := document.opPool[i]
-				fmt.Println("trying to execute")
 				if document.IsExecutable(op) {
-					fmt.Println("executing")
 					switch op.OpType {
 						case "ins":
 							prevChar := document.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
@@ -699,7 +702,7 @@ func ProcessOperations() {
 							}
 							document.opPool = append(document.opPool[:i], document.opPool[i+1:]...) // remove from pool
 						case "del": 
-							document.IntegrateDel(op.OpChar)
+							_ = document.IntegrateDel(op.Position)
 							if op.DocumentId == document.DocName {
 								hub.broadcast <- []byte(constructString(document.WString))
 							}
