@@ -16,7 +16,7 @@ import (
 	"time"
 	"strconv"
 	"runtime"	
-	//"github.com/arcaneiceman/GoVector/govec"
+	"github.com/arcaneiceman/GoVector/govec"
 )
 
 type WCharacter struct {
@@ -30,6 +30,8 @@ type WCharacter struct {
 // Reply from service for all API calls
 type ValReply struct {
 	Val string // value; depends on the call
+	SenderID int // ID of replying replica
+	SenderClock int // (Shiviz) clock of replying replica
 }
 
 // Info about other active replicas
@@ -65,6 +67,8 @@ type Operation struct {
 	OpType string
 	Position int
 	DocumentId string
+	OriginatorID int
+	OriginatorClock int
 }
 
 // struct to represent a document
@@ -73,6 +77,13 @@ type Document struct {
 	WString []*WCharacter // ordered string of WCharacters
 	WCharDic map[string]*WCharacter // dictionary of WCharacters (each WCharacter must retain original next/prev)
 	opPool []*Operation
+}
+
+// struct to hold event information
+type ShivizEvent struct {
+	Event string
+	HostID int
+	VectorClocks map[int]int
 }
 
 // special start WCharacter, ID is such that it comes before every char and its nextID comes after every char
@@ -94,12 +105,14 @@ var endChar = WCharacter {
 var document *Document // current document being edited
 var replicaID int // each replica has a unique id
 var replicaClock int // each replica has a logical clock associated with it
+var shivizClock int // clock to track events to be logged in ShiViz
 var activeReplicasMap map[int]Replica
 var documentsMap map[string]*Document // map to store different documents (used by the storage replica)
 var upgrader = websocket.Upgrader{} // use default options
 var httpAddress = flag.String("addr", ":8080", "http service address")
 var homeTempl = template.Must(template.ParseFiles("index.html"))
 var storageOpPool []*Operation
+var Logger *govec.GoLog // Logger to log events for Shiviz
 
 const storageFlag int = -1
 
@@ -334,9 +347,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// govector library for vector clock logs
-	// Logger := govec.Initialize("client", "clientlogfile")
-
 	activeReplicasMap = make(map[int]Replica)
 
 	// init operation pool
@@ -357,8 +367,16 @@ func main() {
 		}
 	}
 
-	// initialize clock
+	// govector library for vector clock logs
+	if replicaID == storageFlag {
+		Logger = govec.Initialize("replica", "replicalogfile")
+	} else {
+		Logger = govec.Initialize("client", "clientlogfile")
+	}
+
+	// initialize clocks
 	replicaClock = 0
+	shivizClock = 0
 
 	replicaAddr, err := net.ResolveUDPAddr("udp", replicaAddrString)
 	checkError(err)
@@ -524,17 +542,24 @@ func (doc *Document) GenerateIns(pos int, char string) {
 		PrevID: cPrev.ID,
 		NextID: cNext.ID }
 
+	LogLocalEvent("Generating insert: " + newWChar.CharVal )
+
 	doc.IntegrateIns(&newWChar, cPrev, cNext)
 
 	operation := Operation{
 		OpChar: &newWChar,
 		OpType: "ins",
-		DocumentId: doc.DocName}
+		DocumentId: doc.DocName,
+		OriginatorID: replicaID,
+		OriginatorClock: shivizClock}
 	BroadcastOperation(&operation)
 }
 
 func (doc *Document) GenerateDel(pos int) {
+	LogLocalEvent("Generating delete at: " + strconv.Itoa(pos))
+
 	wChar := doc.IntegrateDel(pos)
+
 	docString := constructString(doc.WString)
 	fmt.Printf("Current WString: %s\n", docString)
 
@@ -542,7 +567,9 @@ func (doc *Document) GenerateDel(pos int) {
 		OpType: "del",
 		OpChar: wChar,
 		Position: pos,
-		DocumentId: doc.DocName}
+		DocumentId: doc.DocName,
+		OriginatorID: replicaID,
+		OriginatorClock: shivizClock}
 	BroadcastOperation(&operation)
 
 }
@@ -580,6 +607,8 @@ func (doc *Document) IntegrateDel(pos int) (*WCharacter) {
 	_, exists = doc.WCharDic[ConstructKeyFromID(wChar.ID)]
 	if exists {
 		doc.WCharDic[ConstructKeyFromID(wChar.ID)] = wChar
+
+		LogLocalEvent("Integrating delete: " + wChar.CharVal)
 	} else {
 		fmt.Printf("failed to delete -> not in map %s\n", wChar.CharVal)
 	}
@@ -595,6 +624,7 @@ func (doc *Document) IntegrateIns(cChar *WCharacter, cPrev *WCharacter, cNext *W
 	if len(subseqS) == 0 {
 		fmt.Printf("itegrate insert done -> inserting at posn: %d\n ", doc.Pos(*cNext))
 		doc.Insert(cChar, doc.Pos(*cNext))
+		LogLocalEvent("Integrating insert: " + cChar.CharVal)
 	} else {
 		L := make([]*WCharacter, 0)
 		L = append(L, cPrev)
@@ -634,8 +664,7 @@ func BroadcastOperation(op *Operation) {
 			err = r.Call("ReplicaService.ReceiveOperation", op, &result)
 			if err != nil {
 				fmt.Println("Cannot call replica procedure")	
-			}
-			// TODO: Do something with reply?	
+			} 
 		}
 	}
 }
@@ -657,7 +686,14 @@ func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValRepl
 		document.opPool = append(document.opPool, receivedOp)
 	}
 
+	vectorClocks := make(map[int]int)
+	vectorClocks[receivedOp.OriginatorID] = receivedOp.OriginatorClock
+	LogEventWithVectors("Received op: " + receivedOp.OpType, vectorClocks)
+
 	reply.Val = ""
+	reply.SenderID = replicaID
+	reply.SenderClock = shivizClock
+
 	return nil
 }
 
@@ -819,6 +855,102 @@ func (doc *Document) printWCharDic() {
 	}
 }
 
+
+// Shiviz logging helper functions
+
+func LogLocalEvent(event string) {
+	// Clean up strings
+	event = strings.TrimSpace(event)
+
+	// Increment shiviz clock
+	shivizClock += 1
+
+	shivizEvent := ShivizEvent{
+		Event: event,
+		HostID: replicaID,
+		VectorClocks: make(map[int]int)}
+	shivizEvent.VectorClocks[replicaID] = shivizClock
+
+	LogEvent(shivizEvent)
+
+	// Send event to all replicas so that they can log the event themselves
+	for _, replica := range activeReplicasMap {
+		if replica.NodeId != replicaID {
+			r, err := rpc.Dial("tcp", replica.RPCAddr)
+			if err != nil {
+				fmt.Println("Cannot contact replica")
+			}
+
+			var result ValReply
+
+			err = r.Call("ReplicaService.ReceiveRemoteEvent", &shivizEvent, &result)
+			if err != nil {
+				fmt.Println("Cannot call replica procedure")	
+			}
+		}
+	}
+}
+
+func LogEventWithVectors(event string, vectorClocks map[int]int) {
+	// Increment shiviz clock
+	shivizClock += 1
+
+	shivizEvent := ShivizEvent{
+		Event: event,
+		HostID: replicaID,
+		VectorClocks: make(map[int]int)}
+	shivizEvent.VectorClocks = vectorClocks
+	shivizEvent.VectorClocks[replicaID] = shivizClock
+
+	LogEvent(shivizEvent)
+
+	// Send event to all replicas so that they can log the event themselves
+	for _, replica := range activeReplicasMap {
+		if replica.NodeId != replicaID {
+			r, err := rpc.Dial("tcp", replica.RPCAddr)
+			if err != nil {
+				fmt.Println("Cannot contact replica")
+			}
+
+			var result ValReply
+
+			err = r.Call("ReplicaService.ReceiveRemoteEvent", &shivizEvent, &result)
+			if err != nil {
+				fmt.Println("Cannot call replica procedure")	
+			}
+		}
+	}
+
+}
+
+func LogEvent(event ShivizEvent) {
+	if !Logger.LogThis(event.Event, strconv.Itoa(event.HostID), ConstructClockString(event.VectorClocks)) {
+		fmt.Println("Failed to log event!")
+	}
+}
+
+// receive event from remote replica and log it
+func (rs *ReplicaService) ReceiveRemoteEvent(receivedEvent *ShivizEvent, reply *ValReply) error {
+	fmt.Println("Receiving event: \"" + receivedEvent.Event + "\"")
+
+	reply.Val = ""
+
+	LogEvent(*receivedEvent)
+
+	return nil
+}
+
+func ConstructClockString(clockMap map[int]int) string {
+	clockString := "{"
+	
+	for hostID, hostClock := range clockMap {
+		clockString += "\"" + strconv.Itoa(hostID) + "\":" + strconv.Itoa(hostClock) + ", "
+	}
+	clockString = strings.TrimSuffix(clockString, ", ")	
+	clockString += "}"
+
+	return clockString
+}
 
 // If error is non-nil, print it out and halt.
 func checkError(err error) {
