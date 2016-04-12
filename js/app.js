@@ -5,6 +5,7 @@ angular.module('app', ['eb.caret'])
 
 	var pathname = window.location.pathname;
 	var initNewDoc = false;
+	var documentId;
 	
 	if (pathname == "/") {
 		initNewDoc = true;
@@ -20,7 +21,7 @@ angular.module('app', ['eb.caret'])
 		} else { // Retrieve a document based on the specified document id given in the URL path
 			var paths = pathname.split("/");
 			if (paths.length == 3 && paths[1] == "doc") {
-				var documentId = paths[2];
+				documentId = paths[2];
 				replica.send(JSON.stringify({
 						'op' : 'retrieve',
 						'val' : documentId
@@ -34,7 +35,8 @@ angular.module('app', ['eb.caret'])
 				
 		if (initNewDoc) {
 			initNewDoc = false;
-			$scope.shareLink = "Share Link: localhost:8080/doc/" + event.data;
+			documentId = event.data;
+			$scope.shareLink = "Share Link: localhost:8080/doc/" + documentId;
 			$scope.$apply();
 		} else { 
 			console.log(event);
@@ -51,7 +53,8 @@ angular.module('app', ['eb.caret'])
 			replica.send(JSON.stringify({
 					'op' : 'ins',
 					'val' : String.fromCharCode(event.charCode),
-					'pos' : $scope.cursor.get
+					'pos' : $scope.cursor.get,
+					'documentId' : documentId
 				}));
 
 			// Check keyup for Backspace/Delete
@@ -61,13 +64,15 @@ angular.module('app', ['eb.caret'])
 				// Backspace
 				replica.send(JSON.stringify({
 						'op' : 'del',
-						'pos' : $scope.cursor.get
+						'pos' : $scope.cursor.get,
+						'documentId' : documentId
 					}));
 			} else if (event.keyCode == 46) {
 				// Delete
 				replica.send(JSON.stringify({
 						'op' : 'del',
-						'pos' : $scope.cursor.get + 1
+						'pos' : $scope.cursor.get + 1,
+						'documentId' : documentId
 					}));
 			}
 		}

@@ -59,6 +59,7 @@ type AppMessage struct {
 	Op  string
 	Pos int
 	Val string
+	DocumentId string
 }
 
 // struct to represent operations
@@ -102,7 +103,7 @@ var endChar = WCharacter {
 	PrevID: []int{0,0},
 	NextID: nil }
 
-var document *Document // current document being edited
+var currentDocumentsMap map[string]*Document // Stores the replica's current local documents
 var replicaID int // each replica has a unique id
 var replicaClock int // each replica has a logical clock associated with it
 var shivizClock int // clock to track events to be logged in ShiViz
@@ -134,7 +135,7 @@ type Hub struct {
 	// Registered connections.
 	connections map[*Connection]string
 	// Inbound messages from the connections.
-	broadcast chan []byte
+	broadcast chan *Message
 	// Register requests from the connections.
 	register chan *Connection
 	// Unregister requests from connections.
@@ -142,7 +143,7 @@ type Hub struct {
 }
 
 var hub = Hub {
-	broadcast:   make(chan []byte),
+	broadcast:   make(chan *Message),
 	register:    make(chan *Connection),
 	unregister:  make(chan *Connection),
 	connections: make(map[*Connection]string),
@@ -160,9 +161,9 @@ func (h *Hub) run() {
 			}
 		case m := <-h.broadcast:
 			for c := range h.connections {
-				if h.connections[c] == document.DocName {
+				if h.connections[c] == m.documentId {
 					select {
-						case c.send <- m:
+						case c.send <- m.payload:
 						default:
 							close(c.send)
 							delete(h.connections, c)
@@ -181,6 +182,12 @@ type Connection struct {
 	send chan []byte
 	// document id
 	documentId string
+}
+
+// Message to hold documentId and payload
+type Message struct {
+	documentId string
+	payload []byte
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -209,23 +216,35 @@ func (c *Connection) readPump() {
 		switch cmd.Op {
 			case "init":
 				documentId := CreateDocumentId(9)
-				document = InitDocument(documentId)
+				document := InitDocument(documentId)
+				currentDocumentsMap[documentId] = document
 				hub.connections[c] = document.DocName
-				message := []byte(documentId)
-				hub.broadcast <- message
+				hub.broadcast <- &Message {
+					documentId : documentId,
+					payload : []byte(documentId),
+				}
 			case "retrieve":
-				document = RetrieveDocument(cmd.Val)
+				document := RetrieveDocument(cmd.Val)
+				currentDocumentsMap[document.DocName] = document
 				hub.connections[c] = document.DocName
-				message := []byte(constructString(document.WString))
-				hub.broadcast <- message
+				hub.broadcast <- &Message {
+					documentId : document.DocName,
+					payload : []byte(constructString(document.WString)),
+				}
 			case "ins":
-				document.GenerateIns(cmd.Pos, cmd.Val)  
-				message := []byte(constructString(document.WString))
-				hub.broadcast <- message
+				document := currentDocumentsMap[cmd.DocumentId]
+				document.GenerateIns(cmd.Pos, cmd.Val)  				
+				hub.broadcast <- &Message {
+					documentId : cmd.DocumentId,
+					payload : []byte(constructString(document.WString)),
+				}
 			case "del":
+				document := currentDocumentsMap[cmd.DocumentId]
 				document.GenerateDel(cmd.Pos)
-				message := []byte(constructString(document.WString))
-				hub.broadcast <- message
+				hub.broadcast <- &Message {
+					documentId : cmd.DocumentId,
+					payload : []byte(constructString(document.WString)),
+				}
 		}
 	}
 }
@@ -407,6 +426,7 @@ func main() {
 		storageOpPool = make([]*Operation, 0)
 		RPCService(replicaAddrString)
 	} else {
+		currentDocumentsMap = make(map[string]*Document)
 		go RPCService(replicaAddrString)
 		
 		// Start HTTP server
@@ -683,13 +703,13 @@ func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValRepl
 	if replicaID == storageFlag {
 		storageOpPool = append(storageOpPool, receivedOp)
 	} else {
-	
-		if document == nil {
-			fmt.Println("document is nil")
+		document, exists := currentDocumentsMap[receivedOp.DocumentId]
+		if exists {
+			document.opPool = append(document.opPool, receivedOp)
+		} else {
+			fmt.Println("Document does not yet exist on replica")
 			return nil
-		}
-	
-		document.opPool = append(document.opPool, receivedOp)
+		}	
 	}
 
 	vectorClocks := make(map[int]int)
@@ -727,30 +747,30 @@ func ProcessOperations() {
 				}
 			}
 		} else { // loop through document pool
-			if document == nil {
-				continue
-			}
-			
-			for i := len(document.opPool) - 1; i >= 0; i-- {
-				op := document.opPool[i]
-				if document.IsExecutable(op) {
-					switch op.OpType {
-						case "ins":
-							prevChar := document.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
-							nextChar := document.WCharDic[ConstructKeyFromID(op.OpChar.NextID)]
-							document.IntegrateIns(op.OpChar, prevChar, nextChar)
-							if op.DocumentId == document.DocName {
-								hub.broadcast <- []byte(constructString(document.WString))
-							}
-							document.opPool = append(document.opPool[:i], document.opPool[i+1:]...) // remove from pool
-						case "del": 
-							_ = document.IntegrateDel(op.Position)
-							if op.DocumentId == document.DocName {
-								hub.broadcast <- []byte(constructString(document.WString))
-							}
-							document.opPool = append(document.opPool[:i], document.opPool[i+1:]...)
+			for _, document := range currentDocumentsMap {
+				for i := len(document.opPool) - 1; i >= 0; i-- {
+					op := document.opPool[i]
+					if document.IsExecutable(op) {
+						switch op.OpType {
+							case "ins":
+								prevChar := document.WCharDic[ConstructKeyFromID(op.OpChar.PrevID)]
+								nextChar := document.WCharDic[ConstructKeyFromID(op.OpChar.NextID)]
+								document.IntegrateIns(op.OpChar, prevChar, nextChar)
+								hub.broadcast <- &Message {
+									documentId : document.DocName,
+									payload : []byte(constructString(document.WString)),
+								}
+								document.opPool = append(document.opPool[:i], document.opPool[i+1:]...) // remove from pool
+							case "del": 
+								_ = document.IntegrateDel(op.Position)
+								hub.broadcast <- &Message {
+									documentId : document.DocName,
+									payload : []byte(constructString(document.WString)),
+								}
+								document.opPool = append(document.opPool[:i], document.opPool[i+1:]...)
+						}
 					}
-				}
+				}	
 			}
 		}		
 	}
