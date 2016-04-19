@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/rpc"
 	"os"
@@ -64,7 +63,7 @@ func ReplicaListener(conn *net.UDPConn) {
 	for {
 		readLength, _, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			log.Fatalf("Error read from UDP %s\n", err)
+			fmt.Printf("Error read from UDP %s\n", err)
 		}
 		// receive Replica struct from replica node
 		var replica Replica
@@ -74,7 +73,7 @@ func ReplicaListener(conn *net.UDPConn) {
 			replicaRPCMap[replica.NodeId] = replica
 			UpdateReplicas()
 		} else {
-			log.Fatalf("Error unmarshalling replica %s\n", err)
+			fmt.Printf("Error unmarshalling replica %s\n", err)
 		}
 	}
 }
@@ -102,7 +101,8 @@ func UpdateReplicas() {
 	for id, replica := range replicaRPCMap {
 		r, err := rpc.Dial("tcp", replica.RPCAddr)
 		if err != nil {
-			log.Fatalf("Cannot reach Replica %s\n%s", id, err)
+			fmt.Printf("Cannot reach Replica %s\n%s\n", id, err)
+			continue
 		}
 
 		args := &ActiveReplicas{replicaRPCMap}
@@ -110,7 +110,7 @@ func UpdateReplicas() {
 
 		err = r.Call("ReplicaService.SetActiveNodes", args, &result)
 		if err != nil {
-			log.Fatalf("Error updating Replica %s\n%s", id, err)
+			fmt.Print("Error updating Replica %s\n%s\n", id, err)
 		}
 	}
 }
