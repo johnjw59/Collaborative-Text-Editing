@@ -713,7 +713,7 @@ func (rs *ReplicaService) ReceiveOperation(receivedOp *Operation, reply *ValRepl
 	}
 
 	vectorClocks := make(map[int]int)
-	vectorClocks[receivedOp.OriginatorID] = receivedOp.OriginatorClock
+	vectorClocks[receivedOp.OriginatorID] = receivedOp.OriginatorClock - 1
 	LogEventWithVectors("Received op: " + receivedOp.OpType, vectorClocks)
 
 	reply.Val = ""
